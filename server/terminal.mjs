@@ -5,15 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { terminalEnvironment } from './worker-env.mjs';
 
 const cwd = fileURLToPath(new URL('../', import.meta.url));
-const worker = fileURLToPath(new URL('./terminal-worker.py', import.meta.url));
+// POSIX uses a pty and a separate fd 3 protocol channel; Windows uses ConPTY and stdout.
+const windows = process.platform === 'win32';
+const worker = fileURLToPath(new URL(windows ? './terminal-worker-windows.py' : './terminal-worker.py', import.meta.url));
+// Each notebook session may open several terminal tabs; shells are keyed by "<sessionId>/<terminalId>".
+const maxTerminalsPerSession = 8;
+const keyOf = (sessionId, terminalId) => `${sessionId}/${terminalId}`;
 export function terminalService(server, runtime) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 65536, perMessageDeflate: false });
   const tickets = new Map();
   const sessions = new Map();
-  function stop(sessionId) {
-    const active = sessions.get(sessionId);
+  function stop(key) {
+    const active = sessions.get(key);
     if (!active) return;
-    sessions.delete(sessionId);
+    sessions.delete(key);
     active.socket?.close(1000, 'Terminal closed');
     active.child?.stdin.end();
     const timer = setTimeout(() => active.child?.kill('SIGTERM'), 1000); timer.unref();
@@ -30,16 +35,17 @@ export function terminalService(server, runtime) {
     }
     tickets.delete(token);
     if (!runtime.sessions.has(ticket.sessionId)) {socket.destroy();return;}
-    stop(ticket.sessionId);
+    stop(ticket.key);
     sockets.handleUpgrade(req, socket, head, ws => {
-      const child = spawn(runtime.python, [worker], { cwd, detached: true, stdio: ['pipe', 'ignore', 'pipe', 'pipe'], env: {...terminalEnvironment(), TERM:'xterm-256color', PYTHONUNBUFFERED:'1'} });
+      const child = spawn(runtime.python, [worker], { cwd, detached: !windows, windowsHide: true, stdio: windows ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe', 'pipe'], env: {...terminalEnvironment(), TERM:'xterm-256color', PYTHONUNBUFFERED:'1'} });
+      const protocol = windows ? child.stdout : child.stdio[3];
       const active = { child, socket:ws };
-      sessions.set(ticket.sessionId, active);
+      sessions.set(ticket.key, active);
       let buffer = '', error = '';
       const send = message => { if(ws.readyState === WebSocket.OPEN)ws.send(JSON.stringify(message)); };
       child.stdin.on('error', () => {});
       child.stderr.on('data', data => {error=(error+data).slice(-4000);});
-      child.stdio[3].on('data', data => {
+      protocol.on('data', data => {
         buffer += data;
         let end;
         while ((end=buffer.indexOf('\n')) !== -1) {
@@ -47,11 +53,11 @@ export function terminalService(server, runtime) {
           try {send(JSON.parse(line));} catch {}
         }
         // Bound browser-side backpressure instead of buffering unlimited command output.
-        if(ws.bufferedAmount > 4000000)stop(ticket.sessionId);
+        if(ws.bufferedAmount > 4000000)stop(ticket.key);
       });
       child.on('error', err => {send({type:'error',message:`Could not start local shell: ${err.message}`});ws.close();});
       child.on('exit', code => {
-        if(sessions.get(ticket.sessionId) === active)sessions.delete(ticket.sessionId);
+        if(sessions.get(ticket.key) === active)sessions.delete(ticket.key);
         send({type:'exit',message:error || `Shell exited${code === null ? '' : ` (${code})`}.`});ws.close();
       });
       ws.on('message', data => {
@@ -61,8 +67,8 @@ export function terminalService(server, runtime) {
           else if(message.type === 'resize' && Number.isInteger(message.cols) && Number.isInteger(message.rows))child.stdin.write(JSON.stringify(message)+'\n');
         } catch {ws.close(1008,'Invalid terminal message');}
       });
-      ws.on('close', () => {if(sessions.get(ticket.sessionId) === active)stop(ticket.sessionId);});
-      ws.on('error', () => {if(sessions.get(ticket.sessionId) === active)stop(ticket.sessionId);});
+      ws.on('close', () => {if(sessions.get(ticket.key) === active)stop(ticket.key);});
+      ws.on('error', () => {if(sessions.get(ticket.key) === active)stop(ticket.key);});
       send({type:'ready'});
     });
   }
@@ -71,13 +77,22 @@ export function terminalService(server, runtime) {
     clearInterval(sweep);for(const id of sessions.keys())stop(id);tickets.clear();sockets.close();
   });
   return {
-    async open({sessionId}) {
-      if(process.platform === 'win32')throw new Error('The local terminal currently requires macOS or Linux.');
+    async open({sessionId, terminalId = 'main'}) {
+      if(typeof terminalId !== 'string' || !/^[\w-]{1,40}$/.test(terminalId))throw new Error('A valid terminalId is required.');
       await runtime.session(sessionId);
-      for(const [token,ticket] of tickets)if(ticket.sessionId === sessionId)tickets.delete(token);
-      const token=randomBytes(32).toString('hex');tickets.set(token,{sessionId,expires:Date.now()+30000});
+      const key=keyOf(sessionId,terminalId);
+      const open=[...sessions.keys()].filter(k => k.startsWith(`${sessionId}/`) && k !== key).length;
+      if(open >= maxTerminalsPerSession)throw new Error(`At most ${maxTerminalsPerSession} terminals can be open at once. Close one first.`);
+      for(const [token,ticket] of tickets)if(ticket.key === key)tickets.delete(token);
+      const token=randomBytes(32).toString('hex');tickets.set(token,{sessionId,key,expires:Date.now()+30000});
       return {path:`/__pre_terminal/${token}`};
     },
-    close({sessionId}) {stop(sessionId);for(const [token,ticket] of tickets)if(ticket.sessionId === sessionId)tickets.delete(token);return {ok:true};},
+    // Without a terminalId (e.g. leaving the project) every terminal of the session closes.
+    close({sessionId, terminalId}) {
+      const matches=key => terminalId ? key === keyOf(sessionId,terminalId) : key.startsWith(`${sessionId}/`);
+      for(const key of [...sessions.keys()])if(matches(key))stop(key);
+      for(const [token,ticket] of tickets)if(matches(ticket.key))tickets.delete(token);
+      return {ok:true};
+    },
   };
 }

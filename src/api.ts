@@ -10,6 +10,7 @@ export type Cell = {
   durationMs?: number;
   executionCount?: number;
   status?: 'running' | 'success' | 'error';
+  ranOn?: string; // terminal tab the last "Run on SSH" used, e.g. "Nittany AI Compute"
 };
 export type ExecutionResult = { stdout: string; stderr?: string; error?: string; images?: string[]; durationMs?: number; executionCount?: number };
 export type ProjectFile = { path: string; content: string };

@@ -50,7 +50,7 @@ ssh username@hostname
 
 SSH uses your computer's installed SSH client, keys, agent, and host configuration. Password and host-key prompts stay interactive in the terminal. Ctrl+C interrupts commands. Drag the top edge to resize, use Clear to clear the display, and Restart to open a fresh shell. Collapsing the panel preserves the session; leaving the project or closing the connection ends it.
 
-The terminal runs locally on macOS/Linux through `npm run dev` or `npm run preview`; it does not use the optional remote backend URL. It has your local user permissions and starts in the actual checkout, not the browser's virtual file tree. Browser-saved project files are not automatically mirrored into the terminal directory. Shell output and keystrokes are not stored by PRE. WebSocket connections require a same-origin, short-lived single-use ticket.
+The terminal runs locally on macOS, Linux, and Windows 10 1809+ through `npm run dev` or `npm run preview`; it does not use the optional remote backend URL. On Windows it opens PowerShell (or `pwsh` if installed; set `PRE_TERMINAL_SHELL` to override) in a ConPTY pseudo console and uses Windows' built-in OpenSSH client. It has your local user permissions and starts in the actual checkout, not the browser's virtual file tree. Browser-saved project files are not automatically mirrored into the terminal directory. Shell output and keystrokes are not stored by PRE. WebSocket connections require a same-origin, short-lived single-use ticket.
 
 ## Cells
 
