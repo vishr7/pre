@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -15,3 +16,8 @@ from ai.router import router  # noqa: E402
 
 app = FastAPI(title="PRE AI (dev)")
 app.include_router(router)
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse("/ai/playground")
