@@ -25,7 +25,19 @@ The current workspace already has the virtual environment and Tectonic installed
 
 The home page lists your projects. Use **New project** to name and open a blank workspace with its own notebook and paper. Search, rename, archive, and restore projects from the list. Opening a project shows the PDF preview and automatically compiles `paper/main.tex`; compilation errors appear with a retry button. Click **All projects** (or the PRE logo) to return home. Project URLs support browser back/forward and reopening after refresh.
 
-Each project saves its files and cells separately on this device. Existing single-workspace content is imported once as **Untitled project**. Leaving a workspace stops and releases its execution session; reopening starts fresh kernels while preserving source and saved text outputs. An empty project is a notebook/paper workspace, not an operating-system terminal.
+Each project saves its files and cells separately on this device. Existing single-workspace content is imported once as **Untitled project**. Leaving a workspace stops and releases its execution session; reopening starts fresh kernels while preserving source and saved text outputs. New projects open a notebook/paper workspace; the bottom Terminal bar opens a local interactive shell.
+
+## Terminal and SSH
+
+The terminal opens automatically beneath the middle notebook/editor column, with matching pearl-and-pink styling. It stays docked within that column while the files sidebar and PDF preview keep their full height. Click **Terminal** to collapse or expand it. It starts your local `$SHELL` in the repository directory with a real pseudo-terminal. Run normal commands or connect to a remote host:
+
+```sh
+ssh username@hostname
+```
+
+SSH uses your computer's installed SSH client, keys, agent, and host configuration. Password and host-key prompts stay interactive in the terminal. Ctrl+C interrupts commands. Drag the top edge to resize, use Clear to clear the display, and Restart to open a fresh shell. Collapsing the panel preserves the session; leaving the project or closing the connection ends it.
+
+The terminal runs locally on macOS/Linux through `npm run dev` or `npm run preview`; it does not use the optional remote backend URL. It has your local user permissions and starts in the actual checkout, not the browser's virtual file tree. Browser-saved project files are not automatically mirrored into the terminal directory. Shell output and keystrokes are not stored by PRE. WebSocket connections require a same-origin, short-lived single-use ticket.
 
 ## Cells
 
