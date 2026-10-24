@@ -1,5 +1,20 @@
 # Scientific execution foundation
 
+## Statistical validation
+
+`pre_science.statistics.analyze_statistics(StatisticalRequest)` calculates explicit
+Welch, paired t or Mann–Whitney comparisons with descriptions, appropriate
+available intervals, defined effect sizes, strict p-value threshold decisions
+and provenance. No execution or AI is involved. Missing/non-finite input is
+rejected and undefined output is marked unavailable. The robustness adapter
+requires explicit condition correspondence and seed matching for pairs, extracts
+actual per-run metrics and never silently drops failed observations. See the
+[Prompt 10 handoff](science-handoff.md#statistical-validation-prompt-10) for
+schemas, formulas, backend/frontend contracts, assumptions and the real
+`python -m pre_science.demo_statistics` command. Statistical evidence is distinct
+from numerical agreement, reproduction, practical importance and independent
+validation. No teammate infrastructure or existing scientific services are changed.
+
 ## Multi-seed robustness evaluation
 
 `pre_science.robustness.RobustnessService` runs approved, digest-bound multi-seed
