@@ -4,8 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import { request, type Cell, type ProjectFile } from './api';
 import { isScientificResult, object } from './scientific';
 import ScientificResults from './ScientificResults';
+import IteratePanel from './BackendIteratePanel';
 
-export default function ScientificTool({mode,base,files,cells,onSummary}:{mode:'Experiment'|'Iterate';base:string;files:ProjectFile[];cells:Cell[];onSummary:(text:string)=>void}) {
+type Props={mode:'Experiment'|'Iterate';base:string;files:ProjectFile[];cells:Cell[];onSummary:(text:string)=>void};
+export default function ScientificTool(props:Props) {
+ return props.mode==='Iterate' ? <IteratePanel base={props.base} files={props.files}/> : <ExperimentTool {...props}/>;
+}
+function ExperimentTool({mode,base,files,cells,onSummary}:Props) {
  const [prompt,setPrompt] = useState(''); const [working,setWorking] = useState(false);
  const [response,setResponse] = useState<Record<string,unknown>|null>(null); const [error,setError] = useState('');
  const generation = useRef(0); const pending = useRef(false);
