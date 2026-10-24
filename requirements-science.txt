@@ -1,0 +1,7 @@
+numpy>=2.2,<3
+pandas>=2.2,<3
+scipy>=1.15,<2
+scikit-learn>=1.6,<2
+matplotlib>=3.10,<4
+optuna>=4,<5
+pydantic>=2.10,<3
