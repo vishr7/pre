@@ -2,17 +2,59 @@ import type { Cell } from './api';
 
 // A notebook's LaTeX cells form one document, in notebook order.
 export function notebookLatex(cells: Cell[]): string | undefined {
-  const sources = cells.filter(cell => cell.type === 'latex' && cell.source.trim()).map(cell => cell.source);
+  const sources = [...new Map(cells.filter(cell => cell.type === 'latex' && cell.source.trim()).map(cell => [cell.source.trim(), cell.source])).values()];
   if (!sources.length) return undefined;
-  const documents = sources.filter(source => /^\s*\\documentclass(?:\[|\{)/m.test(source));
-  if (documents.length > 1) throw new Error('Keep only one complete LaTeX document in the notebook. Use fragments in the other LaTeX cells.');
-  if (!documents.length) return sources.join('\n\n');
-  const document = documents[0];
-  const fragments = sources.filter(source => source !== document).join('\n\n');
-  if (!fragments) return document;
-  const end = /^\s*\\end\{document\}/m.exec(document);
-  if (!end) throw new Error('Add \\end{document} to the complete document before combining LaTeX cells.');
-  return document.slice(0, end.index) + '\n' + fragments + '\n' + document.slice(end.index);
+  const isDocument = (source: string) => /^\s*\\documentclass(?:\[|\{)/m.test(source);
+  const rootIndex = sources.findIndex(isDocument);
+  if (rootIndex < 0) return sources.join('\n\n');
+  const document = sources[rootIndex];
+  if (sources.length === 1) return document;
+  const begin = /\\begin\{document\}/.exec(document);
+  const end = /\\end\{document\}/.exec(document);
+  if (!begin || !end || end.index < begin.index) throw new Error('Close the main document with \\begin{document} and \\end{document} before combining content.');
+  const extras: string[] = [];
+  const preamble = document.slice(0,begin.index);
+  const additions: string[] = [];
+  // Keep multiline declarations together (titles and macros often span lines).
+  const declarations = (source: string) => {
+    const chunks: string[] = [];
+    let chunk: string[] = [], depth = 0;
+    for (const line of source.split('\n')) {
+      chunk.push(line);
+      const code = line.replace(/(?<!\\)%.*$/, '');
+      for (let index = 0; index < code.length; index++) {
+        if (code[index] === '\\') { index++; continue; }
+        if (code[index] === '{') depth++;
+        if (code[index] === '}') depth--;
+      }
+      if (depth <= 0) { chunks.push(chunk.join('\n')); chunk = []; depth = 0; }
+    }
+    if (chunk.length) chunks.push(chunk.join('\n'));
+    return chunks;
+  };
+  const knownLines = new Set(declarations(preamble).map(line=>line.trim()));
+  for(const [index,source] of sources.entries()) {
+    if(index === rootIndex)continue;
+    if(!isDocument(source)){extras.push(source);continue;}
+    const start = /\\begin\{document\}/.exec(source);
+    const finish = /\\end\{document\}/.exec(source);
+    if(!start || !finish || finish.index < start.index)throw new Error('A secondary LaTeX document is missing its document boundaries. Close it before combining.');
+    // Keep one document class, retain additional declarations, and include each
+    // secondary body once. This changes the assembled view, never source cells.
+    const extraPreamble = source.slice(0,start.index).replace(/\\documentclass(?:\[[^\]]*\])?\{[^}]*\}/g,'');
+    for(const line of declarations(extraPreamble)) {
+      const trimmed=line.trim();
+      if(!trimmed || knownLines.has(trimmed))continue;
+      // The root owns page geometry and title metadata. Other declarations are
+      // retained so equations/custom commands in the added body remain usable.
+      if(/^\\(?:title|author|date|geometry|pagestyle)(?:\[|\{)/.test(trimmed))continue;
+      if(/^\\usepackage(?:\[[^\]]*\])?\{geometry\}/.test(trimmed))continue;
+      additions.push(line);knownLines.add(trimmed);
+    }
+    const body=source.slice(start.index+start[0].length,finish.index).replace(/\\maketitle\b/g,'');
+    extras.push(body);
+  }
+  return preamble + '\n' + (additions.length ? additions.join('\n')+'\n' : '') + document.slice(begin.index,end.index) + '\n' + extras.join('\n\n') + '\n' + document.slice(end.index);
 }
 
 export function paperLatex(files: {path: string; content: string}[], cells: Cell[] = []): string {
@@ -61,6 +103,7 @@ export function paperLatex(files: {path: string; content: string}[], cells: Cell
     const body = /\\begin\{document\}([\s\S]*?)\\end\{document\}/.exec(file.source)?.[1];
     return body === undefined || body.replace(/(?<!\\)%[^\n]*/g, '').replace(/\\null\b/g, '').trim() !== '';
   }) : sources;
-  try { return notebookLatex([...fileSources, ...latexCells]) ?? '\\null'; }
+  const uniqueCells = latexCells.filter(cell => !fileSources.some(file => file.source.includes(cell.source.trim())));
+  try { return notebookLatex([...fileSources, ...uniqueCells]) ?? '\\null'; }
   catch(error){throw new Error((error as Error).message.replace('notebook','paper').replace('LaTeX cells','LaTeX files'));}
 }
