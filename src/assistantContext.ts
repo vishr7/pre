@@ -1,3 +1,4 @@
+import { figureAssets } from './figureAssets.ts';
 import type { Cell, ProjectFile } from './api';
 const clip=(text:unknown,limit:number)=>typeof text==='string'&&text.length>limit?text.slice(0,limit)+'\n[Truncated for chat]':text;
 const parse=(text?:string)=>{try{return JSON.parse(text||'null');}catch{return null;}};
@@ -17,7 +18,7 @@ export function assistantContext({cells,files,review,logs,compileError,selected,
  latestRun:run?{executedAt:run.executedAt,source:run.source,executedCode:clip(run.code,25000),stdout:clip(run.stdout,20000),stderr:clip(run.stderr,8000),error:clip(run.error,8000),durationMs:run.durationMs,figureCount:run.images?.length||0,codeChangedSinceRun:run.code!==files.find(file=>file.path===manifest.path)?.content}:null}:null;
  const notebook=cells.map(cell=>{addFigures(cell.images,`Notebook cell ${cell.id}`);return {id:cell.id,type:cell.type,source:clip(cell.source,12000),output:clip(cell.output,8000),error:clip(cell.error,4000),status:cell.status,executionCount:cell.executionCount,figureCount:cell.images?.length||0,outputMatchesCurrentSource:cell.executedSource===undefined?null:cell.source===cell.executedSource};});
  const safeFiles=files.filter(file=>!file.path.startsWith('replication/')&&!/(^|\/)(\.env(?:\..*)?|.*\.(pem|key))$/i.test(file.path)).sort((a,b)=>Number(b.path===selected)-Number(a.path===selected)).slice(0,30).map(file=>({path:file.path,content:clip(file.content,10000)}));
- const context:Record<string,unknown>={replication,review,notebook,files:safeFiles,selected,compilation:{error:compileError,logs:clip(logs,6000)},otherToolResult:clip(toolResult,12000),figureLabels:figures.map(f=>f.label)};
+ const context:Record<string,unknown>={availableFigurePaths:figureAssets(cells,files).map(asset=>asset.path),replication,review,notebook,files:safeFiles,selected,compilation:{error:compileError,logs:clip(logs,6000)},otherToolResult:clip(toolResult,12000),figureLabels:figures.map(f=>f.label)};
  // Bound text recursively without turning saved PNGs into enormous text prompts.
  let budget=190000;
  function bounded(value:unknown):unknown{
