@@ -1,5 +1,6 @@
 // Server-only Gemini transport. API credentials never enter the browser bundle.
-export async function structured_call({ prompt, schema, validate, images = [] }, { fetchImpl = fetch, env = process.env, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+// Optional `thinking` (e.g. {thinkingLevel:'low'}) speeds up small, well-specified tasks; omitted by default.
+export async function structured_call({ prompt, schema, validate, images = [], thinking }, { fetchImpl = fetch, env = process.env, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   const key = env.GEMINI_API_KEY;
   const model = env.GEMINI_MODEL?.replace(/^models\//, '');
   if (!key || !model) throw new Error('AI generation needs GEMINI_API_KEY and GEMINI_MODEL in .env. Restart the dev server after setting them.');
@@ -12,7 +13,7 @@ export async function structured_call({ prompt, schema, validate, images = [] },
     try { response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt + feedback }, ...images.map(image => ({inlineData: image}))] }],
-        generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema } }),
+        generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, ...(thinking ? { thinkingConfig: thinking } : {}) } }),
       signal: AbortSignal.timeout(Math.min(90000, remaining)),
     });
     } catch (error) {
