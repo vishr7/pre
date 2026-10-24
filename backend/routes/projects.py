@@ -66,7 +66,7 @@ def get_project(project_id: str):
 
 @router.put("/{project_id}/files")
 
-    
+
 def save_project_files(project_id: str, project_files: ProjectFiles):
     # Check that the project exists
     try:

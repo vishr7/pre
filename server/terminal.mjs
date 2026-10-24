@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { terminalEnvironment } from './worker-env.mjs';
 
 const cwd = fileURLToPath(new URL('../', import.meta.url));
 const worker = fileURLToPath(new URL('./terminal-worker.py', import.meta.url));
@@ -31,7 +32,7 @@ export function terminalService(server, runtime) {
     if (!runtime.sessions.has(ticket.sessionId)) {socket.destroy();return;}
     stop(ticket.sessionId);
     sockets.handleUpgrade(req, socket, head, ws => {
-      const child = spawn(runtime.python, [worker], { cwd, detached: true, stdio: ['pipe', 'ignore', 'pipe', 'pipe'], env: {...process.env, TERM:'xterm-256color', PYTHONUNBUFFERED:'1'} });
+      const child = spawn(runtime.python, [worker], { cwd, detached: true, stdio: ['pipe', 'ignore', 'pipe', 'pipe'], env: {...terminalEnvironment(), TERM:'xterm-256color', PYTHONUNBUFFERED:'1'} });
       const active = { child, socket:ws };
       sessions.set(ticket.sessionId, active);
       let buffer = '', error = '';

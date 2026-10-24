@@ -27,6 +27,19 @@ The home page lists your projects. Use **New project** to name and open a blank 
 
 Each project saves its files and cells separately on this device. Existing single-workspace content is imported once as **Untitled project**. Leaving a workspace stops and releases its execution session; reopening starts fresh kernels while preserving source and saved text outputs. New projects open a notebook/paper workspace; the bottom Terminal bar opens a local interactive shell.
 
+## AI compile repair
+
+When a **LaTeX cell** fails, PRE automatically asks the configured Gemini model for a minimal fix. The original source remains unchanged. PRE validates exact-quote edits, compiles the proposed source with Tectonic, and shows a single inline diff inside that same cell, with green additions and red removals. The editor automatically jumps to the first changed line.
+
+- **Accept fix** applies the complete proposed patch and displays its verified PDF. It is enabled only after successful compilation.
+- **Reject** discards the suggestion and restores the original editable cell.
+- If validation or compilation fails, the source is unchanged and the suggestion is labeled unverified. Compiler details remain available; Try again requests a new suggestion.
+- Changing the cell invalidates pending suggestions. If project files changed after verification, acceptance is refused until the cell is checked again.
+
+Set `GEMINI_API_KEY` and `GEMINI_MODEL` in the root `.env`, then restart the dev server. Credentials stay on the server. The failed cell and a bounded compiler-log excerpt are sent to Gemini; unrelated files and their contents are not sent. This feature checks compilation, not scientific correctness. Review the diff before accepting. It currently handles cell-level LaTeX errors, not Python errors or whole-paper file editing.
+
+The local endpoint `POST /api/repair/latex` accepts `{ source, error }` and returns `{ summary, edits: [{old_text, new_text, reason}], source }`. Candidate compilation uses the existing `/api/compile` endpoint without changing the displayed PDF until acceptance. External backends must implement the same repair contract. Invalid AI output is retried at most twice; no repeated repair loop runs after a rejected or non-compiling suggestion.
+
 ## Terminal and SSH
 
 The terminal opens automatically beneath the middle notebook/editor column, with matching pearl-and-pink styling. It stays docked within that column while the files sidebar and PDF preview keep their full height. Click **Terminal** to collapse or expand it. It starts your local `$SHELL` in the repository directory with a real pseudo-terminal. Run normal commands or connect to a remote host:
@@ -98,3 +111,15 @@ npm run build
 ```
 
 The extended suite requires scientific Python packages and Tectonic. It verifies real plot/PDF generation in addition to state persistence, language isolation, errors, file imports, path traversal rejection, timeouts, and cancellation.
+
+### Generate LaTeX in a cell
+
+Type an instruction on its own line, for example `pre write a centered title saying HW 7 - 432`, then press Enter (Shift+Enter inserts a normal newline). You can also click AI edit or Compile to process the first PRE command. PRE replaces only that instruction line, checks compilation, and shows an inline change for Accept/Reject. Surrounding source stays intact. Requires the server-side Gemini configuration described above; the cell context and instruction are sent to Gemini. External runtimes must implement `POST /api/compose/latex` with `{source, line}` (1-based line) returning the same proposal shape as the repair endpoint.
+
+Compile in the notebook combines its nonempty LaTeX cells into one preview. A complete document supplies the preamble; additional fragments are inserted before its document ending. Keep at most one complete document per notebook. Notebook compiles its LaTeX cells; Paper combines project LaTeX files with those same notebook LaTeX cells. An empty notebook produces a blank preview. Paper combines all `.tex` files and appends notebook LaTeX cells in notebook order, using the complete document as its root and adding other fragments before the document ending; explicit input/include references are expanded once. Unreferenced files follow filename order. Switching tabs rebuilds the corresponding preview. Cell compilation and AI suggestion verification use the combined notebook source too.
+
+Ask AI supports screenshot-to-LaTeX by pasting an image directly into the chat message box. Paste PNG, JPEG, or WebP (up to 2 MB), describe the desired result, choose a new or existing LaTeX cell, and press Enter or Send. The server sends the image, instruction, and target source to the configured Gemini model. Proposed edits are compilation-checked and require Accept in the notebook. Image attachments are kept in memory, not saved with the project. External backends must implement `POST /api/compose/image` with `{source,instruction,image:{mimeType,data}}` and the repair proposal response shape. Visual matching is approximate; review the PDF for layout accuracy.
+
+### Review your paper
+
+Open **Tools → Review**, choose General, NeurIPS, ACL, or Journal, and select **Start review**. Review reads the same combined LaTeX files and notebook cells as Paper. Results include scores, anchored comments, and action items. **Show in paper** opens and highlights the quoted passage in the combined source. Reviews use server-side Gemini configuration and do not edit your source. The local endpoint is `POST /api/review` with `{latex, venue}`; external runtimes must support that endpoint too. The branch's standalone Python reviewer remains available under `backend/ai` with its own requirements and development app.
