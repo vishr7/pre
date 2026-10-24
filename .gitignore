@@ -3,3 +3,13 @@ dist/
 .env.local
 
 *.tsbuildinfo
+
+# Python backend
+backend/.venv/
+**/__pycache__/
+*.pyc
+
+# Environment variables and API keys
+.env
+.env.*
+!.env.example
