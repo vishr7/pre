@@ -1,7 +1,7 @@
 # Scientific execution foundation
 
 This package is independent of the Node notebook runtime. It installs no routes,
-does not start FastAPI, and does not implement Docker, cloud storage, reproduction, or
+does not start FastAPI, and does not implement Docker, cloud storage, or
 optimization. Python 3.10+ is required; use a version supported by the scientific
 dependencies.
 
@@ -17,6 +17,7 @@ $env:MPLCONFIGDIR = Join-Path (Get-Location) '.venv\matplotlib-config'
 .venv/Scripts/python -m pre_science.worker --demo
 .venv/Scripts/python -m pre_science.demo_plots
 .venv/Scripts/python -m pre_science.demo_data
+.venv/Scripts/python -m pre_science.demo_replicate
 ```
 
 The demo executes a fixed developer-authored NumPy example, prints real stdout,
@@ -380,6 +381,172 @@ ignored `.runtime/dataset-demo/<run>` directory and performs label filtering,
 duplicate removal, median imputation, standardization, and CSV retrieval. It
 prints the complete real inspection/report and retrieved CSV, retaining artifacts
 for inspection. No actual `.env` or external dataset is read.
+
+## PRE Replicate: approved reconstruction and numerical validation
+
+`pre_science.replicate.ReplicationService` wraps the existing `ExperimentService`.
+It does not execute code, fetch datasets, invoke Gemini, install dependencies,
+or create another backend. Execution, PNG artifacts, and CSV preprocessing keep
+their existing interfaces. New schemas reside in `pre_science.schemas`.
+
+`ReplicationSpecification` distinguishes source metadata from reconstruction:
+paper title, optional authors/identifier/year, source kind, method and experiment
+title, optional declared dependencies, published parameters/seed, actual
+reconstruction parameters/seed, evaluation metrics, published scalar metrics,
+implementation code, dataset provenance, and limitations. Missing information
+stays null or explicitly listed; nothing is extracted or invented from code.
+Use `source_kind="local_baseline"` for demonstrations, `"publication"` for a
+publication provided by the researcher, and `"unverified"` when unknown. Source
+kind is a declaration, not independent bibliographic verification.
+
+Each `PublishedMetric` requires an explicit nonnegative finite
+`absolute_tolerance` and `relative_tolerance`; no scientific tolerances are
+silently selected. A null reference value represents unavailable source results;
+strings, NaN and infinity in proposed numerical results fail Pydantic validation.
+The standalone `compare_metric` utility safely reports unavailable comparisons
+for nonnumeric, nonfinite, or missing input without leaking non-JSON values.
+Unknown fields, duplicate metric names, invalid seeds/timeouts, and nonfinite
+parameter values are rejected before execution.
+
+### Approval and inputs
+
+Person 2 submits an **unapproved** specification. Person 4 validates project
+access, presents the complete proposal to the researcher, and records approval
+against `specification_digest(proposal)`. The digest includes code, references,
+tolerances, parameters, dataset metadata, and limitations, excluding only the
+approval record itself. Edits to any proposal data invalidate the recorded hash.
+
+```python
+from pre_science.experiment import ExperimentService
+from pre_science.replicate import ReplicationService, specification_digest
+from pre_science.schemas import ReplicationSpecification, ResearcherApproval
+
+proposal = ReplicationSpecification.model_validate(extracted_proposal)
+# Person 4: only after authenticated researcher review; never trust an AI/client
+# payload that claims it is already approved. Store this approval server-side.
+proposal.approval = ResearcherApproval(
+    approved=True, approved_by=authenticated_researcher_id,
+    specification_sha256=specification_digest(proposal),
+)
+report = ReplicationService(ExperimentService(isolated_executor)).run(
+    proposal,
+    available_dataset_ids=backend_verified_dataset_ids,
+    available_asset_ids=backend_verified_asset_ids,
+)
+response = report.model_dump(mode="json")
+```
+
+Missing, incomplete, or stale approval returns `approval_required` with the full
+proposal retained and no executor call. This library does not authenticate an
+`approved_by` string: Person 4 must establish approval from trusted account
+state, rather than exposing a raw approval switch in an execution endpoint.
+
+An approved proposal needs code, explicit reconstruction parameters (`{}` means
+none), an explicit reconstruction seed, and an explicit `dataset_required`
+decision before execution. No default seed or scientific parameter choice is
+introduced to fill missing source information. The published seed can remain
+unknown while the researcher explicitly chooses a reconstruction seed; the
+methodology is then partial. A missing implementation input returns
+`missing_inputs`, never silent substitution. Other missing methodology may
+allow execution while reducing the completeness assessment.
+
+Required datasets and assets/weights must appear in the backend's verified
+availability context. Listing a reference in the proposal does not establish
+access. Person 4 resolves **the exact approved dataset/artifact version**,
+checks ownership and hashes, and mounts only authorized files into the isolated
+worker before supplying that context. `dataset_required=False` means the
+implementation is self-contained; it cannot accompany an external dataset
+reference. Missing original source datasets/code/weights are also recorded as
+limitations; approved proxy implementations may run but remain approximate.
+Required dependency strings are declarations, not an automated installation or
+version-equivalence check. Worker import failures remain execution failures.
+
+### Numerical rule and scientifically conservative interpretation
+
+For every reference metric the reusable comparison utility applies:
+
+```text
+abs(reproduced - published) <= absolute_tolerance + relative_tolerance * abs(published)
+relative_difference = absolute_difference / abs(published)
+percentage_difference = 100 * relative_difference
+```
+
+No rounding or hidden epsilon precedes comparison. Decimal arithmetic on the
+exact binary64 input representations avoids overflow falsely turning a failure
+into `infinity <= infinity`. Published values therefore have their supplied
+floating-point meaning, including at tolerance boundaries. Relative/percentage
+differences are null for a zero reference. Differences outside finite JSON float
+range, or below its resolution, are null with warnings; agreement is still
+computed without overflowing. This is a scalar tolerance check, not statistical
+significance testing or confidence-interval overlap.
+
+Per-metric results contain reference/actual values, differences, tolerances,
+agreement, status, and unavailable reasons. Missing actual metrics remain
+missing; extra actual metrics are separately listed without invented references.
+`numerical_assessment` distinguishes `all_comparable_agree`,
+`some_metrics_differ`, `no_comparable_metrics`, `execution_failed`, and
+`not_executed`. `all_comparable_agree` can cover only a subset: consult each
+comparison and `all_published_metrics_agree`, which is null if required reference
+comparisons are unavailable (unless a known disagreement already makes it false).
+Failures/timeouts preserve actual partial metrics/logs in the execution evidence
+but never treat them as successful numerical reproduction.
+
+Methodology completeness is separate:
+
+- `insufficient_information`: required execution inputs are unavailable.
+- `approximate_reconstruction`: assumptions, substitutions, unavailable original
+  resources, declared condition mismatches, or parameter/seed changes are present.
+- `partially_specified`: source conditions or methodology/results are unknown,
+  incomplete, or the source is unverified.
+- `fully_specified`: the supplied declarations include the method, parameters,
+  seed, dependencies, evaluation/results, dataset description/hash when needed,
+  and explicitly known/matching source conditions, without listed gaps or changes.
+
+Even `fully_specified` is a classification of supplied declarations, not proof
+that the code implements the paper. Numerical agreement never yields a
+"scientifically validated" verdict. The service does not verify units, metric
+definitions, train/test splits, hardware, dependency equivalence, algorithmic
+fidelity, or the truth of a publication's reported results. Record those details
+and uncertainties in the proposal and its limitations before approval.
+
+### Reports, datasets, figures, and team integration
+
+`ReplicationReport` includes the original specification, approval digest, paper
+metadata, statuses, published/actual/extra metrics, comparisons, methodology
+assessment, missing inputs/details, assumptions, dataset provenance, executed
+code hash, actual parameters/seed, worker dependency versions, PNG metadata,
+duration and UTC report time. Its nested `execution` is the unabridged existing
+`ExperimentResult`, including stdout/stderr, errors, partial metrics, and all
+execution metadata. If code has not run, execution evidence/duration/code hash
+are null, not fabricated. A deterministic plain-text `summary` is derived from
+these fields, with explicit warnings against interpreting agreement as proof.
+
+`ReplicationDataset` reuses `ProcessedDatasetReference` and
+`TransformationLogEntry` from Prompt 4, with optional original artifact/hash and
+dataset description. Original/processed source hashes and logical dataset IDs
+must agree. Dataset provenance and approved proposal digest are passed through
+the existing experiment metadata. The service never resolves local paths from
+these identifiers. Figures use the existing `FigureArtifact` metadata and
+`ArtifactStore`; no PNG payloads or fake public URLs are added.
+
+Person 1 can render structured per-metric comparisons, missing-information
+messages, completeness and numerical indicators independently, and authorized
+persisted figure URLs supplied by Person 4. Person 2 validates Gemini output
+against `ReplicationSpecification`, preserves unknowns/assumptions, and may
+explain the actual structured report; it must never replace worker metrics.
+Person 4 owns approval integrity, project/resource access, isolated execution,
+data mounts, error-to-HTTP mapping, storage of reports/artifacts, authorization
+of returned data, and explicit cleanup after persistence. Provider/error/log
+sanitization remains a backend boundary: do not return arbitrary infrastructure
+exception text to public clients. No teammates' routes or UI are changed.
+
+`python -m pre_science.demo_replicate` executes trusted fixed NumPy code via the
+real worker against an explicitly identified **local demonstration baseline**:
+mean `30.0` and population std `14.142135623730951` for `[10,20,30,40,50]`.
+It also executes a separately approved proposal with the mean reference changed
+to `31.0`, demonstrating a real numerical discrepancy. Both reports preserve
+actual outputs, dependency versions, code hashes, seeds and PNGs; PNG retrieval
+is checked. These results are not an independently reproduced publication.
 
 ## Execution security boundaries
 
