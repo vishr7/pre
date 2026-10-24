@@ -115,3 +115,5 @@ The extended suite requires scientific Python packages and Tectonic. It verifies
 ### Generate LaTeX in a cell
 
 Type an instruction on its own line, for example `pre write a centered title saying HW 7 - 432`, then press Enter (Shift+Enter inserts a normal newline). You can also click AI edit or Compile to process the first PRE command. PRE replaces only that instruction line, checks compilation, and shows an inline change for Accept/Reject. Surrounding source stays intact. Requires the server-side Gemini configuration described above; the cell context and instruction are sent to Gemini. External runtimes must implement `POST /api/compose/latex` with `{source, line}` (1-based line) returning the same proposal shape as the repair endpoint.
+
+Compile in the notebook combines its nonempty LaTeX cells into one preview. A complete document supplies the preamble; additional fragments are inserted before its document ending. Keep at most one complete document per notebook. With no LaTeX cells, or while editing a `.tex` file, the main Compile button builds `paper/main.tex`. Cell compilation and AI suggestion verification use the combined notebook source too.
