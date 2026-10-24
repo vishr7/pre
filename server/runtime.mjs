@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { terminalService } from './terminal.mjs';
 import { composeLatex } from './ai/compose.mjs';
+import { reviewPaper } from './ai/review.mjs';
 import { proposeLatexRepair } from './ai/repair.mjs';
 import { workerEnvironment } from './worker-env.mjs';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -182,6 +183,7 @@ export function runtimePlugin() {
         const data = JSON.parse(raw);
         if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
         if (req.url === '/api/repair/latex') return send(200, await proposeLatexRepair(data));
+        if (req.url === '/api/review') return send(200, await reviewPaper(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));
         if (req.url === '/api/terminal/open') return send(200, await terminal.open(data));
