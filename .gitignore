@@ -6,8 +6,12 @@ dist/
 
 # Python backend
 backend/.venv/
+.venv/
 **/__pycache__/
 *.pyc
+
+# Runtime files
+.runtime/
 
 # Environment variables and API keys
 .env

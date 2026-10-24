@@ -1,0 +1,20 @@
+// Installs the pinned official Tectonic release into this project only.
+import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const version = '0.17.0';
+const targets = { 'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin', 'linux-x64': 'x86_64-unknown-linux-gnu' };
+const target = targets[`${process.platform}-${process.arch}`];
+if (!target) throw new Error('Install Tectonic for your platform and set PRE_TECTONIC to its executable path. https://tectonic-typesetting.github.io/en-US/install.html');
+const directory = fileURLToPath(new URL('../.runtime/bin/', import.meta.url));
+await mkdir(directory, {recursive:true});
+const archive = path.join(directory, 'tectonic.tar.gz');
+console.log(`Downloading Tectonic ${version} from its official GitHub release…`);
+const response = await fetch(`https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${version}/tectonic-${version}-${target}.tar.gz`);
+if (!response.ok) throw new Error(`Download failed (${response.status}).`);
+await writeFile(archive, Buffer.from(await response.arrayBuffer()));
+const result = spawnSync('tar', ['-xzf', archive, '-C', directory], {stdio:'inherit'});
+if (result.status !== 0) throw new Error('Could not extract Tectonic.');
+await rm(archive);
+console.log('LaTeX is ready. The first compilation downloads TeX support files.');
