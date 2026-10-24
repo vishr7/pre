@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRE Review Playground</title>
+<style>
+  :root {
+    --bg: #fbf9f8; --panel: #ffffff; --ink: #1f1d1d; --muted: #6b6566; --line: #ece6e6;
+    --accent: #c2577a; --accent-soft: #fbe9ef;
+    --critical: #b42318; --critical-soft: #fde8e7;
+    --major: #b54708; --major-soft: #fef0e1;
+    --minor: #475467; --minor-soft: #eef1f5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, system-ui, sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; gap: 12px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header span { color: var(--muted); }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  textarea { width: 100%; height: 340px; font: 12px/1.5 ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
+  .controls { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+  select, button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; }
+  button.primary:disabled { opacity: .6; cursor: wait; }
+  #status { color: var(--muted); }
+  #status.error { color: var(--critical); }
+  .scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .score { border: 1px solid var(--line); border-radius: 8px; padding: 8px; text-align: center; }
+  .score b { display: block; font-size: 22px; }
+  .score small { color: var(--muted); text-transform: capitalize; }
+  .comment { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+  .comment.critical { border-left-color: var(--critical); }
+  .comment.major { border-left-color: var(--major); }
+  .comment.minor { border-left-color: var(--minor); }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; }
+  .tag { padding: 1px 8px; border-radius: 99px; background: var(--minor-soft); color: var(--minor); }
+  .tag.critical { background: var(--critical-soft); color: var(--critical); }
+  .tag.major { background: var(--major-soft); color: var(--major); }
+  .quote { font: 12px ui-monospace, Menlo, monospace; background: var(--accent-soft); padding: 4px 6px; border-radius: 4px; display: block; margin: 4px 0; white-space: pre-wrap; }
+  .suggestion { color: var(--muted); }
+  .action { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .action small { color: var(--muted); }
+  #paper { font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; max-height: 520px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  mark { background: var(--accent-soft); border-bottom: 2px solid var(--accent); padding: 0 1px; }
+  mark.flash { background: #f7c6d6; }
+  mark sup { color: var(--accent); font-weight: 600; margin-left: 2px; }
+  .full { grid-column: 1 / -1; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header><h1>PRE Review Playground</h1><span>Local testing page for Person 2's AI reviewer</span></header>
+<main>
+  <section class="card">
+    <h2>1. Paper (LaTeX)</h2>
+    <textarea id="latex"></textarea>
+    <div class="controls">
+      <select id="venue">
+        <option value="generic">General</option>
+        <option value="neurips">NeurIPS</option>
+        <option value="acl">ACL</option>
+        <option value="journal">Journal</option>
+      </select>
+      <button class="primary" id="go">Review</button>
+      <span id="status"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Review</h2>
+    <div id="summary" class="empty">Click Review to see the AI's feedback here.</div>
+    <div id="scores" class="scores"></div>
+    <div id="comments"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. To-do list for the author</h2>
+    <div id="actions" class="empty">Action items appear here.</div>
+  </section>
+
+  <section class="card">
+    <h2>4. Paper with highlighted quotes</h2>
+    <div id="paper" class="empty">Each comment's quote is highlighted here. Click a comment to jump to it.</div>
+  </section>
+</main>
+
+<script>
+const DEMO_PAPER = __DEMO_PAPER__;
+const $ = id => document.getElementById(id);
+$('latex').value = DEMO_PAPER;
+
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+$('go').onclick = async () => {
+  const latex = $('latex').value;
+  $('go').disabled = true;
+  $('status').className = '';
+  $('status').textContent = 'Reviewing… (usually 5–20 seconds)';
+  try {
+    const res = await fetch('/ai/review', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({latex, venue: $('venue').value}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : res.statusText);
+    render(data, latex);
+    $('status').textContent = `Done: ${data.comments.length} comments.`;
+  } catch (e) {
+    $('status').className = 'error';
+    $('status').textContent = 'Error: ' + e.message;
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+function render(r, latex) {
+  $('summary').className = '';
+  $('summary').innerHTML = `<p>${esc(r.summary)}</p>`;
+  $('scores').innerHTML = Object.entries(r.scores)
+    .map(([k, v]) => `<div class="score"><b>${v}/5</b><small>${esc(k)}</small></div>`).join('');
+
+  $('comments').innerHTML = r.comments.map(c => `
+    <div class="comment ${c.severity}" data-id="${esc(c.id)}">
+      <div class="tags"><b>${esc(c.id)}</b>
+        <span class="tag ${c.severity}">${esc(c.severity)}</span>
+        <span class="tag">${esc(c.category.replace('_', ' '))}</span>
+        <span class="tag">${esc(c.section)}</span></div>
+      <span class="quote">${esc(c.quote)}</span>
+      <div>${esc(c.comment)}</div>
+      <div class="suggestion"><b>Fix:</b> ${esc(c.suggestion)}</div>
+    </div>`).join('');
+
+  $('actions').className = '';
+  $('actions').innerHTML = r.action_items.map(a => `
+    <div class="action"><b>${esc(a.id)}. ${esc(a.title)}</b>
+      <div>${esc(a.description)}</div>
+      <small>Addresses: ${a.related_comment_ids.map(esc).join(', ') || 'none'}</small></div>`).join('');
+
+  // Highlight each comment's quote at its position in the paper (skip overlaps).
+  const spans = r.comments
+    .map(c => ({id: c.id, start: latex.indexOf(c.quote), len: c.quote.length}))
+    .filter(s => s.start >= 0)
+    .sort((a, b) => a.start - b.start);
+  let html = '', pos = 0;
+  for (const s of spans) {
+    if (s.start < pos) continue;
+    html += esc(latex.slice(pos, s.start));
+    html += `<mark id="q-${esc(s.id)}">${esc(latex.slice(s.start, s.start + s.len))}<sup>${esc(s.id)}</sup></mark>`;
+    pos = s.start + s.len;
+  }
+  html += esc(latex.slice(pos));
+  $('paper').className = '';
+  $('paper').innerHTML = html;
+
+  document.querySelectorAll('.comment').forEach(el => el.onclick = () => {
+    const m = document.getElementById('q-' + el.dataset.id);
+    if (!m) return;
+    m.scrollIntoView({behavior: 'smooth', block: 'center'});
+    m.classList.add('flash');
+    setTimeout(() => m.classList.remove('flash'), 1200);
+  });
+}
+</script>
+</body>
+</html>

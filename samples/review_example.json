@@ -1,0 +1,118 @@
+{
+  "summary": "The paper introduces AdaptiveDrop, a method for learning per-layer dropout rates during training. While the concept is potentially interesting, the manuscript suffers from severe issues including contradicted metrics between the abstract and experiments, lack of experimental rigor (single run, no error bars), and overstated novelty given prior work like Concrete Dropout. Additionally, the claims made in the text are heavily exaggerated compared to the actual empirical evidence presented.",
+  "scores": {
+    "methodology": 2,
+    "novelty": 2,
+    "clarity": 2,
+    "reproducibility": 2
+  },
+  "comments": [
+    {
+      "id": "c1",
+      "section": "Abstract",
+      "quote": "On CIFAR-10, AdaptiveDrop reaches 94.2\\% test accuracy, significantly outperforming standard dropout.",
+      "category": "inconsistent_metric",
+      "severity": "critical",
+      "comment": "The abstract claims a test accuracy of 94.2% for AdaptiveDrop on CIFAR-10, but the experimental results in Table 1 show only 91.4%. This is a major discrepancy that undermines the credibility of the paper.",
+      "suggestion": "Update the abstract to match the experimental results, or re-run the experiments if a higher accuracy was actually achieved."
+    },
+    {
+      "id": "c2",
+      "section": "Experiments",
+      "quote": "Each model was trained once.",
+      "category": "experimental",
+      "severity": "critical",
+      "comment": "Training models for only a single seed without reporting variance, standard deviations, or confidence intervals is insufficient for modern ML venues like NeurIPS.",
+      "suggestion": "Run all experiments across at least 3-5 random seeds and report mean and standard deviation."
+    },
+    {
+      "id": "c3",
+      "section": "Introduction",
+      "quote": "AdaptiveDrop clearly solves the overfitting problem for convolutional networks.",
+      "category": "unsupported_claim",
+      "severity": "major",
+      "comment": "Claiming that a method \"clearly solves the overfitting problem\" is an overstatement not backed up by evidence from a single dataset and architecture.",
+      "suggestion": "Tone down the language to reflect that the method mitigates overfitting rather than completely solving it."
+    },
+    {
+      "id": "c4",
+      "section": "Related Work",
+      "quote": "Unlike prior work, our method is simple and efficient.",
+      "category": "novelty",
+      "severity": "major",
+      "comment": "Concrete Dropout also learns dropout probabilities via continuous relaxation. Dismissing prior work without proper differentiation or comparison fails to establish true novelty.",
+      "suggestion": "Provide a detailed comparison with Concrete Dropout both conceptually and empirically."
+    },
+    {
+      "id": "c5",
+      "section": "Experiments",
+      "quote": "As shown in Table~\\ref{tab:results}, AdaptiveDrop improves accuracy by over 3 points compared to standard dropout.",
+      "category": "inconsistent_metric",
+      "severity": "major",
+      "comment": "The text states an improvement of over 3 points, but Table 1 shows Standard dropout at 90.3% and AdaptiveDrop at 91.4%, which is an improvement of 1.1 points, not 3 points.",
+      "suggestion": "Correct the textual description to accurately reflect the numbers in Table 1 (1.1 percentage points improvement)."
+    },
+    {
+      "id": "c6",
+      "section": "Method",
+      "quote": "We add a regularization term that keeps the rates from collapsing to zero.",
+      "category": "methodology",
+      "severity": "major",
+      "comment": "The exact formulation of the regularization term and its associated hyperparameters are omitted from the text, preventing reproducibility.",
+      "suggestion": "Include the mathematical formulation of the regularizer and specify all hyperparameters."
+    },
+    {
+      "id": "c7",
+      "section": "Conclusion",
+      "quote": "AdaptiveDrop generalizes to all architectures and datasets and should be the default regularizer for deep learning.",
+      "category": "unsupported_claim",
+      "severity": "minor",
+      "comment": "The method has only been evaluated on a single architecture (ResNet-18) and a single dataset (CIFAR-10), making claims about all architectures and datasets completely unsupported.",
+      "suggestion": "Limit the conclusion claims to the empirical evidence presented or conduct additional evaluations on more datasets and architectures."
+    }
+  ],
+  "action_items": [
+    {
+      "id": "a1",
+      "title": "Resolve Metrics Discrepancy",
+      "description": "Fix the inconsistency between the 94.2% accuracy reported in the abstract and the 91.4% shown in Table 1, and correct the text claiming a 3-point improvement.",
+      "related_comment_ids": [
+        "c1",
+        "c5"
+      ]
+    },
+    {
+      "id": "a2",
+      "title": "Perform Multi-Seed Evaluation",
+      "description": "Re-run all experiments with multiple random seeds and include standard deviations or confidence intervals in Table 1.",
+      "related_comment_ids": [
+        "c2"
+      ]
+    },
+    {
+      "id": "a3",
+      "title": "Clarify Method Formulation",
+      "description": "Add the exact equations and hyperparameters for the regularization term designed to prevent rate collapse.",
+      "related_comment_ids": [
+        "c6"
+      ]
+    },
+    {
+      "id": "a4",
+      "title": "Revise Overstated Claims",
+      "description": "Tone down statements claiming that overfitting is entirely solved and that the method generalizes universally without sufficient empirical proof.",
+      "related_comment_ids": [
+        "c3",
+        "c7"
+      ]
+    },
+    {
+      "id": "a5",
+      "title": "Differentiate from Prior Work",
+      "description": "Expand the related work and experimental comparison against Concrete Dropout to justify the novelty of AdaptiveDrop.",
+      "related_comment_ids": [
+        "c4"
+      ]
+    }
+  ]
+}
