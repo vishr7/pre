@@ -23,7 +23,7 @@ The current workspace already has the virtual environment and Tectonic installed
 
 ## Projects
 
-The home page lists your projects. Use **New project** to name and open a blank workspace with its own notebook and paper. Search, rename, archive, and restore projects from the list. Click **All projects** (or the PRE logo) to return home. Project URLs support browser back/forward and reopening after refresh.
+The home page lists your projects. Use **New project** to name and open a blank workspace with its own notebook and paper. Search, rename, archive, and restore projects from the list. Opening a project shows the PDF preview and automatically compiles `paper/main.tex`; compilation errors appear with a retry button. Click **All projects** (or the PRE logo) to return home. Project URLs support browser back/forward and reopening after refresh.
 
 Each project saves its files and cells separately on this device. Existing single-workspace content is imported once as **Untitled project**. Leaving a workspace stops and releases its execution session; reopening starts fresh kernels while preserving source and saved text outputs. An empty project is a notebook/paper workspace, not an operating-system terminal.
 
