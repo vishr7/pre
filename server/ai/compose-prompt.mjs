@@ -1,9 +1,10 @@
+import { paperStyle } from './paper-style.mjs';
 export const composeSchema = {
   type: 'object', required: ['latex'], additionalProperties: false,
   properties: { latex: { type: 'string' } },
 };
 export function composePrompt(source, instruction, line) {
-  return `Generate LaTeX to replace one plain-English PRE command line in a cell.
+  return `${paperStyle}\nGenerate LaTeX to replace one plain-English PRE command line in a cell.
 Follow the instruction in the JSON instruction field. Return only the replacement LaTeX in the latex field, without Markdown fences.
 Preserve requested wording exactly. Use simple standard LaTeX, with no new packages where possible.
 For example a centered title can use a center environment and a large bold text command.

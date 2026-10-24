@@ -1,3 +1,4 @@
+import { blankPaper } from './paperFormat';
 import type { Cell, ProjectFile } from './api';
 
 // Exact prior starter content is used only to migrate untouched demo entries.
@@ -19,7 +20,7 @@ legacyCells.push(
 export const initialCells: Cell[] = [{ id: 'start', type: 'python', source: '' }];
 export const initialFiles: ProjectFile[] = [{
  path: 'paper/main.tex',
- content: '\\documentclass{article}\n\\usepackage{amsmath,graphicx}\n\\begin{document}\n\\null\n% Write your paper here.\n\n\\end{document}\n',
+ content: blankPaper,
 }];
 export function cleanStarterCells(cells: Cell[]): Cell[] {
  const kept = cells.filter(cell => !legacyCells.some(old => old.id === cell.id && old.type === cell.type && old.source === cell.source));
