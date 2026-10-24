@@ -15,9 +15,11 @@ import traceback
 from importlib.metadata import PackageNotFoundError, version
 
 from .schemas import ExecutionError, ExecutionOutput, ExperimentRequest
+from .plots import ArtifactStore, FigureLimits, capture_figures
 
 
-def run_worker(request: ExperimentRequest) -> ExecutionOutput:
+def run_worker(request: ExperimentRequest, *, artifact_store: ArtifactStore | None = None,
+               figure_limits: FigureLimits | None = None) -> ExecutionOutput:
     """Execute one approved request inside an externally restricted worker."""
     request = ExperimentRequest.model_validate(request.model_dump())
     started = time.monotonic()
@@ -25,6 +27,8 @@ def run_worker(request: ExperimentRequest) -> ExecutionOutput:
     metrics = {}
     error = None
     dependencies = {}
+    artifacts, artifact_errors = [], []
+    plt = None
 
     def report_metric(name, value):
         import numbers
@@ -42,6 +46,10 @@ def run_worker(request: ExperimentRequest) -> ExecutionOutput:
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
             os.environ['MPLBACKEND'] = 'Agg'
+            import matplotlib
+            matplotlib.use('Agg', force=True)
+            import matplotlib.pyplot as plt
+            plt.close('all')  # Each job owns a fresh figure state.
             import numpy as np
             random.seed(request.random_seed)
             np.random.seed(request.random_seed)
@@ -55,6 +63,19 @@ def run_worker(request: ExperimentRequest) -> ExecutionOutput:
             error = ExecutionError(
                 type=type(exc).__name__, message=str(exc), traceback=traceback.format_exc(),
             )
+        finally:
+            if plt is not None:
+                try:
+                    if plt.get_fignums():
+                        artifacts, artifact_errors = capture_figures(
+                            request.experiment_id,
+                            artifact_store if artifact_store is not None else ArtifactStore(),
+                            figure_limits if figure_limits is not None else FigureLimits(),
+                        )
+                except Exception as exc:
+                    artifact_errors.append(f'Figure capture: {type(exc).__name__}: {exc}')
+                finally:
+                    plt.close('all')
     for package in ('numpy', 'pandas', 'scipy', 'scikit-learn', 'matplotlib', 'optuna', 'pydantic'):
         try:
             dependencies[package] = version(package)
@@ -63,8 +84,10 @@ def run_worker(request: ExperimentRequest) -> ExecutionOutput:
     return ExecutionOutput(
         status='error' if error else 'success', exit_code=1 if error else 0,
         stdout=stdout.getvalue(), stderr=stderr.getvalue(), metrics=metrics,
+        artifacts=artifacts,
         error=error, execution_time=time.monotonic() - started,
-        execution_metadata={'python_version': platform.python_version(), 'dependencies': dependencies},
+        execution_metadata={'python_version': platform.python_version(), 'dependencies': dependencies,
+                            'artifact_errors': artifact_errors},
     )
 
 
