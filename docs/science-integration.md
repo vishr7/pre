@@ -1,8 +1,8 @@
 # Scientific execution foundation
 
 This package is independent of the Node notebook runtime. It installs no routes,
-does not start FastAPI, and does not implement Docker, cloud storage, or
-optimization. Python 3.10+ is required; use a version supported by the scientific
+does not start FastAPI, and does not implement Docker or cloud storage.
+Python 3.10+ is required; use a version supported by the scientific
 dependencies.
 
 ## Install, test, and trusted demonstration
@@ -18,6 +18,7 @@ $env:MPLCONFIGDIR = Join-Path (Get-Location) '.venv\matplotlib-config'
 .venv/Scripts/python -m pre_science.demo_plots
 .venv/Scripts/python -m pre_science.demo_data
 .venv/Scripts/python -m pre_science.demo_replicate
+.venv/Scripts/python -m pre_science.demo_iterate
 ```
 
 The demo executes a fixed developer-authored NumPy example, prints real stdout,
@@ -547,6 +548,175 @@ It also executes a separately approved proposal with the mean reference changed
 to `31.0`, demonstrating a real numerical discrepancy. Both reports preserve
 actual outputs, dependency versions, code hashes, seeds and PNGs; PNG retrieval
 is checked. These results are not an independently reproduced publication.
+
+## PRE Iterate: bounded Optuna optimization
+
+`pre_science.iterate.IterationService` uses a seeded standard Optuna TPESampler
+and an in-memory study. Each sequential trial calls the existing
+`ExperimentService`; no new workers, routes, storage clients, or dependencies
+are introduced. The sampler's default startup behavior is retained, so small
+studies may consist entirely of its initial random exploration.
+
+```python
+from pre_science.iterate import IterationService, optimization_digest
+from pre_science.schemas import OptimizationRequest, ResearcherApproval
+
+request = OptimizationRequest.model_validate({
+    "study_id": "tree-search", "experiment_id": "source-tree-experiment",
+    "code": approved_source_code,
+    "base_parameters": {"validation_fraction": 0.3},
+    "search_space": {
+        "max_depth": {"type": "int", "low": 1, "high": 10},
+        "learning_rate": {"type": "float", "low": 0.001, "high": 0.1, "log": True},
+        "criterion": {"type": "categorical", "choices": ["gini", "entropy"]},
+    },
+    "objective_metric": "accuracy", "direction": "maximize",
+    "n_trials": 8, "max_duration_seconds": 120,
+    "trial_timeout_seconds": 20, "random_seed": 42,
+})
+# The example search syntax is illustrative: the approved code must implement
+# every chosen parameter (e.g. decision trees do not use learning_rate).
+# Person 4: only after authenticated approval of this complete request:
+request.approval = ResearcherApproval(
+    approved=True, approved_by=authenticated_researcher_id,
+    specification_sha256=optimization_digest(request),
+)
+report = IterationService(experiment_service).run(
+    request, available_dataset_ids=backend_verified_dataset_ids,
+    available_asset_ids=backend_verified_asset_ids,
+    should_stop=backend_job_stop_requested,
+)
+```
+
+Fixed and sampled parameter names must be disjoint. Pass only fixed values in
+`base_parameters`; remove keys intentionally selected for optimization. Numeric
+bounds must be finite and ordered. Integer bounds are limited to +/-1 billion,
+with aligned positive steps; log integers require positive bounds and step 1.
+Float bounds are limited to +/-1e12; log floats require positive bounds.
+Categorical choices are 1–32 distinct JSON scalars, strings at most 512
+characters, and numerical magnitudes at most 1e12. Equivalent choices such as
+`true` and `1` are rejected. Names must be identifiers of at most 64 characters;
+there are at most 20 varied parameters. Unsupported types, NaN/infinity,
+empty spaces, duplicate-equivalent choices, and conflicting fixed keys fail
+Pydantic validation before execution.
+
+Parameters remain exclusively inside `ExperimentRequest.parameters`, accessed
+by approved code as `parameters["max_depth"]`. No source substitution is used.
+They are never merged into environment variables, approval, timeout, mounts,
+networking, or other execution-control fields. The same explicit seed is used
+for the sampler and for every experiment, enabling fixed splits and comparable
+trial conditions when code uses the provided `random_seed`. Sequential sampling
+is canonicalized by parameter name so JSON key ordering does not change it.
+
+### Authorization, limits, and fresh state
+
+Approval reuses `ResearcherApproval` but is bound to the **optimization** digest,
+including code, dataset, search space, objective, direction, seed, trial count,
+budgets, fixed parameters, and any reproduction origin. Reproduction approval
+is not optimization approval. A missing/stale record returns
+`approval_required` with no trial execution. As with PRE Replicate, backend
+authentication and persisted approval integrity are required; a client-provided
+`approved_by` string is not authentication.
+
+The MVP permits 1–50 trials, a 1–900 second study budget, and 1–300 second
+per-trial timeout. Before scheduling each trial, the service checks its monotonic
+clock and optional backend stop callback. It rechecks the clock after sampling
+and before execution. It stops if fewer than one full second
+remains, since the existing experiment contract uses integer-second deadlines.
+The requested trial timeout is capped to the remaining whole seconds. A timeout
+or stop retains all collected trials and any best observed result. A stop check
+acts between trials, not inside a running one. This scheduler cannot forcibly
+interrupt `ExperimentService.run`; Person 4 must enforce actual worker deadlines
+and resource quotas. A noncompliant executor can overrun the wall-clock budget,
+which the result reports honestly as `time_limit`.
+
+Each trial has a unique execution ID and fresh `ExperimentRequest`. Metadata
+includes source experiment, study/run IDs, trial number, approval digest,
+dataset provenance and `fresh_state_required=true`. **The production executor
+must actually create fresh process/container state for every request.** A new
+request object alone does not reset imported modules, working directories,
+filesystem state, RNGs in external libraries, or native process state. Never
+route optimization through persistent notebook namespaces. The existing worker
+still owns code execution, seeding, explicit metrics, errors and PNG capture.
+
+Dataset/asset references use PRE Replicate's existing schemas and availability
+context. Person 4 must authorize, verify hashes, and mount the exact approved
+versions; identifiers alone cannot establish availability. The service does
+not resolve filesystem paths or obtain storage credentials.
+
+### Objectives, failures, reports, and chart data
+
+Only `execution.metrics[objective_metric]`, explicitly emitted by
+`report_metric`, can become an objective. Missing metrics, invalid/nonfinite
+structured results, code exceptions, worker timeouts and invalid parameter
+combinations fail the trial without manufacturing a score. Subsequent trials
+continue. Unexpected adapter exceptions use a fixed error message, not raw
+exception text that may contain secrets. Valid worker error/metadata evidence
+is retained for authorized backend debugging.
+
+`OptimizationResult` distinguishes `completed`, `failed`, `time_limit`, `stopped`,
+`approval_required` and `missing_inputs`. `completed` means all requested trials
+were attempted with at least one successful objective; inspect successful and
+failed counts separately. All failures yield `failed` and null best fields.
+A successful worker execution with a missing objective is still a failed
+optimization trial, with `execution_status="success"` and `MissingObjective`.
+Malformed output cannot be retained as an `ExperimentResult`; its trial is
+marked `invalid_result` and no invalid numerical values enter JSON.
+
+Each trial contains suggested and full merged parameters, unique execution ID,
+objective or null, trial/execution statuses, errors, measured durations,
+execution metadata, artifacts, and the full existing `ExperimentResult` when
+valid. The report includes request/digest, proposed code hash, seed,
+Optuna/sampler version, source dataset/reproduction provenance, actual study
+duration, timestamps, best trial, and best full/sampled parameters. A code hash
+on a nonexecuted study identifies proposed code, not evidence that it ran.
+Existing per-trial metadata contains the actual executed code hash and worker
+dependency versions.
+
+`history` contains trial number, actual objective or null, best-so-far objective
+or null, and status. Failed trials never receive fabricated penalty values.
+Person 1 can plot this directly and pair it with each trial's configuration;
+objective `0.0` is a valid result, not missing. Strict improvements update the
+best record; ties retain the earliest successful trial. Best means best
+**observed within the search**, not a global optimum.
+
+### Starting from PRE Replicate and team responsibilities
+
+`optimization_from_replication(report, study_id=..., search_space=...,
+objective_metric=..., direction=..., n_trials=..., max_duration_seconds=...)`
+creates an unapproved request from a successful reproduction's actual parameters,
+seed, code and dataset provenance. It verifies the source code hash, removes
+explicitly varied keys from fixed parameters, and records a `ReplicationOrigin`
+with original experiment/digest, code hash, baseline metrics and report timestamp.
+It never mutates the reproduction report or reuses its approval. Optimized
+results are separate experimental outcomes and cannot be labeled faithful
+reproductions merely because a selected metric improved.
+
+Person 2 may propose validated search spaces and interpret measured outcomes,
+but cannot authorize execution or substitute objective values. Person 4 owns
+access checks, approval, exact dataset mounts, isolated workers, job scheduling,
+stop state and report/artifact persistence through existing backend services.
+There is no persistent Optuna database or resume support. Person 1 receives
+structured history, parameters, failure states, and authorized artifact links;
+no frontend changes are implemented here.
+
+`python -m pre_science.demo_iterate` performs two real six-trial Iris decision-tree
+studies with the same seed/configuration, checking that parameter sequences and
+accuracy values match. Each trial runs through the existing worker CLI in a
+fresh subprocess with a filtered environment. This helper executes **trusted
+developer-authored code only**, is not a sandbox and must not be connected to
+user/Gemini input. It trains real models on a fixed stratified training/validation
+split and emits `accuracy` explicitly. Because that validation split guides
+selection, the selected score is **not independent test/generalization evidence**.
+No dataset download or published-paper reproduction is involved.
+
+Repeated seeded sequences require the same Optuna/library versions and
+deterministic experiment code. Early time/stop limits and execution failures can
+change the sampled sequence, and seeds cannot guarantee deterministic hardware
+or every third-party algorithm. Trials can generate many artifacts; Person 4
+must persist or explicitly clean them up under a storage quota. CPU/memory limits,
+disabled networking, restricted filesystems and absence of backend secrets must
+be enforced outside this service before any untrusted execution.
 
 ## Execution security boundaries
 

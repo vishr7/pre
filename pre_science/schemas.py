@@ -364,3 +364,154 @@ class ReplicationReport(Model):
     warnings: list[str]
     summary: str
     report_timestamp: str
+
+
+class IntegerSearch(Model):
+    type: Literal['int']
+    low: int = Field(ge=-1_000_000_000, le=1_000_000_000)
+    high: int = Field(ge=-1_000_000_000, le=1_000_000_000)
+    step: int = Field(default=1, ge=1, le=1_000_000_000)
+    log: bool = False
+
+    @model_validator(mode='after')
+    def valid_range(self):
+        if self.low > self.high:
+            raise ValueError('Integer lower bound must not exceed upper bound')
+        if self.log and (self.low <= 0 or self.step != 1):
+            raise ValueError('Logarithmic integers require positive bounds and step=1')
+        if (self.high - self.low) % self.step:
+            raise ValueError('Integer bounds must align with the requested step')
+        return self
+
+
+class FloatSearch(Model):
+    type: Literal['float']
+    low: FiniteNumber = Field(ge=-1e12, le=1e12)
+    high: FiniteNumber = Field(ge=-1e12, le=1e12)
+    log: bool = False
+
+    @model_validator(mode='after')
+    def valid_range(self):
+        if self.low > self.high:
+            raise ValueError('Float lower bound must not exceed upper bound')
+        if self.log and self.low <= 0:
+            raise ValueError('Logarithmic floats require positive bounds')
+        return self
+
+
+SearchScalar = str | int | FiniteNumber | bool | None
+
+
+class CategoricalSearch(Model):
+    type: Literal['categorical']
+    choices: list[SearchScalar] = Field(min_length=1, max_length=32)
+
+    @model_validator(mode='after')
+    def valid_choices(self):
+        for index, choice in enumerate(self.choices):
+            if isinstance(choice, str) and len(choice) > 512:
+                raise ValueError('Categorical strings must be at most 512 characters')
+            if isinstance(choice, (int, float)) and not isinstance(choice, bool) and abs(choice) > 1e12:
+                raise ValueError('Categorical numeric magnitudes must not exceed 1e12')
+            if any(choice == earlier for earlier in self.choices[:index]):
+                raise ValueError('Categorical choices must be distinct, including numeric/bool equality')
+        return self
+
+
+ParameterSearch = Annotated[IntegerSearch | FloatSearch | CategoricalSearch, Field(discriminator='type')]
+
+
+class ReplicationOrigin(Model):
+    experiment_id: str
+    specification_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    code_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    baseline_metrics: dict[str, FiniteNumber]
+    report_timestamp: str
+
+
+class OptimizationRequest(Model):
+    study_id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    experiment_id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    code: str = Field(min_length=1, max_length=200_000, pattern=r'\S')
+    base_parameters: dict[str, JsonValue]
+    dataset: ReplicationDataset | None = None
+    required_asset_ids: list[NonblankText] = Field(default_factory=list)
+    search_space: dict[str, ParameterSearch] = Field(min_length=1, max_length=20)
+    objective_metric: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    direction: Literal['minimize', 'maximize']
+    n_trials: int = Field(ge=1, le=50)
+    max_duration_seconds: int = Field(ge=1, le=900)
+    trial_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    random_seed: int = Field(ge=0, le=2**32 - 1)
+    approval: ResearcherApproval = Field(default_factory=ResearcherApproval)
+    source_replication: ReplicationOrigin | None = None
+
+    @field_validator('base_parameters')
+    @classmethod
+    def finite_base_parameters(cls, value):
+        json.dumps(value, allow_nan=False)
+        return value
+
+    @model_validator(mode='after')
+    def distinct_parameters(self):
+        import re
+        if set(self.base_parameters) & set(self.search_space):
+            raise ValueError('Base parameters must not overlap sampled parameters')
+        if any(not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}', name) for name in self.search_space):
+            raise ValueError('Search parameter names must be identifiers of at most 64 characters')
+        if self.source_replication is not None and self.source_replication.experiment_id != self.experiment_id:
+            raise ValueError('Source replication must refer to the source experiment')
+        return self
+
+
+class OptimizationTrial(Model):
+    trial_number: int
+    execution_id: str
+    suggested_parameters: dict[str, SearchScalar]
+    parameters: dict[str, JsonValue]
+    objective_value: FiniteNumber | None = None
+    status: Literal['success', 'failed']
+    execution_status: Literal['not_executed', 'success', 'error', 'timeout', 'invalid_result']
+    execution_duration: FiniteNumber | None = None
+    trial_duration: FiniteNumber
+    error: ExecutionError | None = None
+    execution_metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    artifacts: list[FigureArtifact | Artifact] = Field(default_factory=list)
+    execution: ExperimentResult | None = None
+
+
+class OptimizationPoint(Model):
+    trial_number: int
+    objective_value: FiniteNumber | None
+    best_so_far: FiniteNumber | None
+    status: Literal['success', 'failed']
+
+
+class OptimizationResult(Model):
+    request: OptimizationRequest
+    request_sha256: str
+    study_id: str
+    experiment_id: str
+    run_id: str
+    status: Literal['approval_required', 'missing_inputs', 'completed', 'failed', 'time_limit', 'stopped']
+    objective_metric: str
+    direction: Literal['minimize', 'maximize']
+    trials: list[OptimizationTrial]
+    history: list[OptimizationPoint]
+    successful_trial_count: int
+    failed_trial_count: int
+    best_trial_number: int | None
+    best_parameters: dict[str, JsonValue] | None
+    best_suggested_parameters: dict[str, SearchScalar] | None
+    best_objective_value: FiniteNumber | None
+    study_duration: FiniteNumber
+    code_sha256: str
+    random_seed: int
+    dataset_provenance: ReplicationDataset | None
+    source_replication: ReplicationOrigin | None
+    sampler_metadata: dict[str, JsonValue]
+    missing_inputs: list[str]
+    warnings: list[str]
+    error: ExecutionError | None = None
+    started_at: str
+    report_timestamp: str
