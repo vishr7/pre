@@ -1,6 +1,7 @@
+import type { CodeLanguage } from './languages';
 export type Cell = {
   id: string;
-  type: 'markdown' | 'latex' | 'python' | 'javascript';
+  type: 'markdown' | 'latex' | CodeLanguage;
   source: string;
   executedSource?: string;
   editorHeight?: number;

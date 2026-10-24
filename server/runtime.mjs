@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { terminalService } from './terminal.mjs';
 import { composeLatex } from './ai/compose.mjs';
 import { reviewPaper } from './ai/review.mjs';
+import { proposeReviewFix } from './ai/review-fix.mjs';
 import { proposeLatexRepair } from './ai/repair.mjs';
 import { workerEnvironment } from './worker-env.mjs';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -204,6 +205,7 @@ export function runtimePlugin() {
         if (req.url === '/api/tools/replicate') return send(200, await replicate(data, {python:runtime.python,cwd:projectRoot}));
         if (req.url === '/api/chat') return send(200, await chatReply(data));
         if (req.url === '/api/review') return send(200, await reviewPaper(data));
+        if (req.url === '/api/review/fix') return send(200, await proposeReviewFix(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));
         if (req.url === '/api/terminal/open') return send(200, await terminal.open(data));
