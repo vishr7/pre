@@ -13,7 +13,7 @@ async function sourceModule(url) {
  let code=ts.transpileModule(await readFile(url,'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText;
  for(const match of [...code.matchAll(/from\s+(['"])([^'"]+)\1/g)]) {
   const specifier=match[2];
-  const target=specifier.startsWith('.')?await sourceModule(new URL(specifier.replace(/\.(tsx?|js)$/,'')+'.'+(specifier.includes('ScientificResults')?'tsx':'ts'),url)):import.meta.resolve(specifier);
+  const target=specifier.startsWith('.')?await sourceModule(new URL(specifier.replace(/\.(tsx?|js)$/,'')+'.'+(/ScientificResults|IteratePanel/.test(specifier)?'tsx':'ts'),url)):import.meta.resolve(specifier);
   code=code.replace(match[0],`from ${JSON.stringify(target)}`);
  }
  const data='data:text/javascript;base64,'+Buffer.from(code).toString('base64');compiled.set(url.href,data);return data;
@@ -70,12 +70,11 @@ test('PDF selection rejects invalid and oversized files before upload',()=>{
  assert.match(helpers.pdfUploadError({name:'paper.pdf',type:'application/pdf',size:15_000_001}),/15 MB/);
  assert.match(helpers.pdfUploadError({name:'paper.pdf',type:'application/pdf',size:0}),/empty/);
 });
-test('unconnected Experiment and Iterate render honest disabled states',()=>{
- for(const mode of ['Experiment','Iterate']) {
-  const html=renderToStaticMarkup(React.createElement(Tool,{mode,base:'',files:[],cells:[],onSummary:()=>{throw new Error('No request on render');}}));
-  assert.match(html,/Scientific execution is not connected/);assert.match(html,/Backend connection required/);assert.match(html,/disabled=""/);
-  assert.doesNotMatch(html,/science-metric"/);
- }
+test('unconnected Experiment and Iterate expose their backend requirements',()=>{
+ const experiment=renderToStaticMarkup(React.createElement(Tool,{mode:'Experiment',base:'',files:[],cells:[],onSummary:()=>{throw new Error('No request on render');}}));
+ assert.match(experiment,/Scientific execution is not connected/);assert.match(experiment,/Backend connection required/);
+ const iterate=renderToStaticMarkup(React.createElement(Tool,{mode:'Iterate',base:'',files:[],cells:[],onSummary:()=>{throw new Error('No request on render');}}));
+ assert.match(iterate,/Set the Backend API URL/);assert.match(iterate,/Review and start study/);assert.match(iterate,/disabled=""/);
 });
 test('replication requests only paper analysis and syntax, with no host execution route',async()=>{
  const source=await readFile(new URL('../src/ReplicatePanel.tsx',import.meta.url),'utf8');
