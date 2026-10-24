@@ -1,0 +1,14 @@
+[
+  {
+    "id": "article",
+    "source": "\\title{A Small Reproducible Experiment}\\author{Example Author}\\date{}\\maketitle\\begin{abstract}An example abstract for layout inspection.\\end{abstract}\\section{Introduction}\nA paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. A paragraph with ordinary research prose and consistent spacing. \\section{Method}\\begin{equation}L=\\frac{1}{n}\\sum_{i=1}^n (y_i-\\hat{y}_i)^2\\end{equation}"
+  },
+  {
+    "id": "table",
+    "source": "\\section{Results}\\begin{table}[ht]\\centering\\begin{tabular}{lr}\\toprule Method & Accuracy \\\\ \\midrule Baseline & 0.80 \\\\ Proposed & 0.85 \\\\ \\bottomrule\\end{tabular}\\caption{Illustrative numbers, not experimental evidence.}\\label{tab:results}\\end{table}"
+  },
+  {
+    "id": "page-break",
+    "source": "\\section{Cover}A cover page.\\clearpage\\begin{abstract}This abstract starts on a new page.\\end{abstract}\\section{Introduction}Content follows the abstract."
+  }
+]
