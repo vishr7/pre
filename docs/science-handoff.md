@@ -1,5 +1,79 @@
 # Scientific integration handoff
 
+## Automatic LaTeX tables (Prompt 8)
+
+`pre_science.latex_tables` is a pure formatter; it executes no code, calls no AI,
+and writes no manuscript. It accepts existing validated `ExperimentResult` and
+`ReplicationReport` records. Supported types: `experiment` (metric/value),
+`comparison` (selected metric columns across experiments), and `replication`
+(reference/reproduced/difference/recorded agreement status). Optuna trial-table
+generation is not included; do not present optimized trials as reproductions.
+
+Person 4 resolves source IDs from authenticated, authorized stored records, then
+calls the generator inside the existing backend handler:
+
+```python
+from pre_science.latex_tables import LatexTableRequest, generate_latex_table
+
+request = LatexTableRequest(
+    table_type='comparison', source_ids=['baseline', 'variant'],
+    selected_metrics=['accuracy'], caption='Recorded validation accuracy',
+    label='tab:accuracy', decimal_precision=4,
+)
+response = generate_latex_table(request, authorized_records)
+payload = response.model_dump(mode='json')
+```
+
+No route or storage system is added. Mapping keys are backend record identifiers;
+they may differ from the original execution ID. A missing source or incompatible
+record raises `ValueError`; malformed requests/non-finite records raise Pydantic
+validation errors. Return sanitized errors rather than echoing entire records.
+
+Person 1 inserts `payload['latex_source']` at the Monaco cursor after user action,
+then uses the existing Tectonic preview workflow. The response also contains
+`table_type`, `source_ids`, `included_metrics`, `missing_metrics`,
+`missing_by_source`, `warnings`, `generation_timestamp` (UTC), and `compiled=False`.
+The generator does not claim compilation. Generated table source is deterministic
+for identical input; the generation timestamp intentionally changes.
+
+Options include `metric_names`, `experiment_names` (comparison rows),
+`missing_value`, `placement` (restricted standard values or `None`), precision
+0–12 and `number_format='fixed'|'scientific'`. Empty metric selection uses the
+recorded order (ordered union for comparisons). Metrics absent from a source use
+the missing marker; no values are invented. Execution time appears only if
+explicitly recorded as a metric. Failed/timeout records retain partial metrics
+and visible status. Replication uses the existing comparison values/statuses
+without recomputing conclusions; its caption identifies reference source and
+warns that numerical agreement does not establish scientific fidelity.
+
+All captions, display names and missing markers are escaped as text. Labels must
+start with a letter and contain only ASCII letters, digits, `:._-`; arbitrary
+formatting commands are rejected. No additional LaTeX packages are required.
+Formatting rounds display only and leaves source records untouched. Very wide
+tables and long names may require manuscript layout work by Person 1; no layout
+or statistical significance guarantee is made.
+
+Run `.\.venv\Scripts\python.exe -m pre_science.demo_latex_tables` for three real
+trusted worker executions (baseline, variant, replication), generated `.tex`
+snippets and full evidence under `.runtime/latex-tables/<run>/report.json`.
+The comparison is explicitly against a measured local baseline, not a paper.
+Run `python -m pytest tests/science/test_latex_tables.py -q` for focused tests.
+The optional compilation test uses PATH/`PRE_TECTONIC` or `.runtime/bin/tectonic`
+(Windows `.exe` also supported), with cached assets only and untrusted mode.
+It skips if Tectonic is unavailable; installed Tectonic needs a populated cache.
+
+Prompt 8 verification: `pytest tests -q` completed with **243 passed, 2 skipped,
+15 warnings** in 51.52 seconds. Skips were Windows symlink permissions and absent
+Tectonic; warnings were the existing Agg/dependency warnings. Repository-wide
+`pytest -q` was also attempted, but collection stopped in the separate
+`backend/ai/tests` because `google-genai` is not installed in the test environment
+(it is already declared in `backend/ai/requirements.txt`). No AI files or
+dependencies were changed for table generation. The standalone demo measured
+baseline mean 30.0, variant mean 32.0 and population standard deviation
+14.142135623730951 for both, then reproduced the measured baseline. All three
+tables were saved and their displayed values verified against the actual records.
+Tectonic compilation was not performed.
+
 ## Run locally
 
 From the repository root in PowerShell, using Python 3.11+:

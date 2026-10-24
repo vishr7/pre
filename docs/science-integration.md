@@ -738,6 +738,22 @@ and deployment remain backend responsibilities. Do not connect this worker to
 the existing Node runtime as a production execution strategy.
 # Prompt 7 integration handoff
 
+## Prompt 8: recorded results to LaTeX
+
+`pre_science.latex_tables.generate_latex_table(request, authorized_records)`
+renders experiment metrics, experiment comparisons and replication comparisons
+using the existing scientific models. `LatexTableRequest` and
+`LatexTableResponse` live alongside the generator. This adapter adds no routes,
+execution, AI calls, persistence or manuscript edits. It escapes text, restricts
+labels/placement, rejects non-finite records and preserves source values.
+The response contains insertion-ready LaTeX plus provenance IDs, selected/missing
+metrics, warnings, a UTC generation timestamp and `compiled=False`.
+
+See the [Prompt 8 handoff](science-handoff.md#automatic-latex-tables-prompt-8)
+for the exact Person 1/4 interface, presentation limits and demo command.
+Replication tables copy existing numerical conclusions, visibly distinguish local
+references, and make no scientific fidelity or significance claims.
+
 The current checkout and remaining team-owned integration work are documented in
 [science-handoff.md](science-handoff.md). Run `python -m pre_science.demo_end_to_end`
 for the complete trusted CSV-to-model-to-comparison-to-Optuna workflow. It retains
