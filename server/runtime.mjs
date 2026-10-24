@@ -138,7 +138,7 @@ export class Runtime {
     await rm(await session.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     return { ok: true };
   }
-  async compile({ sessionId, source, files, entrypoint = 'paper/main.tex' }) {
+  async compile({ sessionId, source, files, assets = [], entrypoint = 'paper/main.tex' }) {
     const session = await this.session(sessionId);
     if (session.running) throw new Error('This notebook is already running a cell.');
     session.running = true;
@@ -146,6 +146,13 @@ export class Runtime {
     try {
       dir = await mkdtemp(path.join(this.root, 'latex-'));
       await writeFiles(dir, files);
+      if(!Array.isArray(assets)||assets.length>20)throw new Error('Too many figure assets.');
+      for(const asset of assets){
+        if(typeof asset.path!=='string'||!/^figures\/[a-zA-Z0-9_-]+\.png$/.test(asset.path)||typeof asset.data!=='string'||asset.data.length>2000000||! /^[A-Za-z0-9+/]+={0,2}$/.test(asset.data))throw new Error('Invalid figure asset.');
+        const bytes=Buffer.from(asset.data,'base64');
+        if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Figure is not a PNG.');
+        const target=safePath(dir,asset.path);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,bytes);
+      }
       let input;
       if (source !== undefined) {
         if (typeof source !== 'string' || source.length > 200000) throw new Error('LaTeX must be text under 200 KB.');

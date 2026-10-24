@@ -13,7 +13,7 @@ test('inserts fragments inside a complete document rather than after its end',()
  assert.equal(combined.match(/\\documentclass/g).length,1);
 });
 test('does not silently discard multiple documents or fragments after a broken document',()=>{
- assert.throws(()=>notebookLatex([latex('\\documentclass{article}'),latex('\\documentclass{book}')]),/only one/);
+ assert.throws(()=>notebookLatex([latex('\\documentclass{article}'),latex('\\documentclass{book}')]),/end/);
  assert.throws(()=>notebookLatex([latex('\\documentclass{article}'),latex('Body')]),/end/);
 });
 
@@ -46,4 +46,47 @@ test('a complete notebook document replaces the empty starter paper',()=>{
  const document='\\documentclass{article}\n\\begin{document}\nHomework 7\n\\end{document}';
  const result=paperLatex([{path:'paper/main.tex',content:'\\documentclass{article}\n\\begin{document}\n\\null\n% Write your paper here.\n\\end{document}'}],[latex(document)]);
  assert.equal(result,document);
+});
+
+test('paper combines complete files and cells with one wrapper and preserves sources', () => {
+ const root = String.raw`\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+Main body
+\end{document}`;
+ const secondary = String.raw`\documentclass{report}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\newcommand{\result}{Result}
+\begin{document}
+Secondary body \result
+\end{document}`;
+ const cells = [latex(secondary), latex('Final fragment')];
+ const result = paperLatex([{path:'paper/main.tex',content:root}],cells);
+ assert.equal(result.match(/\\documentclass/g).length,1);
+ assert.equal(result.match(/\\begin\{document\}/g).length,1);
+ assert.equal(result.match(/\\end\{document\}/g).length,1);
+ assert.equal(result.match(/Secondary body/g).length,1);
+ assert.equal(result.match(/\\usepackage\{amsmath\}/g).length,1);
+ assert.ok(result.includes(String.raw`\newcommand{\result}{Result}`));
+ assert.ok(result.indexOf(String.raw`\usepackage{amssymb}`)<result.indexOf(String.raw`\begin{document}`));
+ assert.ok(result.indexOf('Final fragment')<result.indexOf(String.raw`\end{document}`));
+ assert.equal(cells[0].source,secondary);
+});
+test('identical paper and notebook documents compile once',()=>{
+ const source=String.raw`\documentclass{article}
+\begin{document}
+Shared manuscript
+\end{document}`;
+ const result=paperLatex([{path:'paper/main.tex',content:source}],[latex(source)]);
+ assert.equal(result.match(/Shared manuscript/g).length,1);
+});
+test('notebook fragment mirrored inside a paper file is included once',()=>{
+ const fragment='Shared section text';
+ const source=String.raw`\documentclass{article}
+\begin{document}
+Shared section text
+\end{document}`;
+ const result=paperLatex([{path:'paper/main.tex',content:source}],[latex(fragment)]);
+ assert.equal(result.match(/Shared section text/g).length,1);
 });
