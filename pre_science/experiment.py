@@ -20,7 +20,7 @@ class ExperimentService:
         submitted_at = datetime.now(timezone.utc).isoformat()
         try:
             output = self.executor.execute(request.model_copy(deep=True))
-            output = ExecutionOutput.model_validate(output.model_dump())
+            output = ExecutionOutput.model_validate(output.model_dump(warnings=False))
         except ExecutionFailure as exc:
             output = ExecutionOutput(
                 status='error', exit_code=-1,

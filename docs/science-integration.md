@@ -1,5 +1,17 @@
 # Scientific execution foundation
 
+## Multi-seed robustness evaluation
+
+`pre_science.robustness.RobustnessService` runs approved, digest-bound multi-seed
+requests sequentially through `ExperimentService`. It preserves per-run evidence,
+dataset/code/source provenance, missing/failure counts and dependency versions;
+it calculates metric-specific sample statistics, optional Student t intervals
+and user-defined threshold assessments without declaring scientific validity.
+The worker now records seed-application scope. No production isolation is added.
+See the [Prompt 9 handoff](science-handoff.md#multi-seed-evaluation-prompt-9)
+for schemas, approval/backend contracts, assumptions, plotting, source helpers
+and the real `python -m pre_science.demo_robustness` demonstration.
+
 This package is independent of the Node notebook runtime. It installs no routes,
 does not start FastAPI, and does not implement Docker or cloud storage.
 Python 3.10+ is required; use a version supported by the scientific
@@ -736,3 +748,39 @@ Worker output capture currently buffers in memory; outer resource limits are
 required. Authentication, authorization, approval, cancellation, persistence,
 and deployment remain backend responsibilities. Do not connect this worker to
 the existing Node runtime as a production execution strategy.
+# Prompt 7 integration handoff
+
+## Prompt 8: recorded results to LaTeX
+
+`pre_science.latex_tables.generate_latex_table(request, authorized_records)`
+renders experiment metrics, experiment comparisons and replication comparisons
+using the existing scientific models. `LatexTableRequest` and
+`LatexTableResponse` live alongside the generator. This adapter adds no routes,
+execution, AI calls, persistence or manuscript edits. It escapes text, restricts
+labels/placement, rejects non-finite records and preserves source values.
+The response contains insertion-ready LaTeX plus provenance IDs, selected/missing
+metrics, warnings, a UTC generation timestamp and `compiled=False`.
+
+See the [Prompt 8 handoff](science-handoff.md#automatic-latex-tables-prompt-8)
+for the exact Person 1/4 interface, presentation limits and demo command.
+Replication tables copy existing numerical conclusions, visibly distinguish local
+references, and make no scientific fidelity or significance claims.
+
+The current checkout and remaining team-owned integration work are documented in
+[science-handoff.md](science-handoff.md). Run `python -m pre_science.demo_end_to_end`
+for the complete trusted CSV-to-model-to-comparison-to-Optuna workflow. It retains
+JSON reports and verified PNG/CSV artifacts, including partial failure evidence.
+
+`pre_science.integration` adds deterministic `{result, scientific}` response
+adapters, strict scientific proposal validation, byte-level artifact checksum
+verification and repeatability diagnostics. These utilities create no routes,
+call no AI services and grant no execution authorization. The existing Node tool
+routes still need backend integration; FastAPI currently provides project CRUD.
+
+Local demos now share `TrustedDemoExecutor`, which accepts an explicit allowlist
+of developer-authored code hashes, uses fresh processes and temporary working
+directories, filters inherited environment variables and rejects overlapping calls
+on one executor. This is a trusted demonstration transport, never a sandbox or a
+production untrusted-code adapter. Production still requires Person 4's isolated
+executor. Matplotlib rcParams are restored after direct worker calls; direct
+in-process workers remain unsuitable for concurrent execution.

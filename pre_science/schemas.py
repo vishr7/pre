@@ -515,3 +515,38 @@ class OptimizationResult(Model):
     error: ExecutionError | None = None
     started_at: str
     report_timestamp: str
+
+
+class RepeatabilityAssessment(Model):
+    requests_match: bool
+    parameters_match: bool
+    objectives_match: bool
+    statuses_match: bool
+    reproducible: bool
+    first_failure_types: list[str]
+    repeated_failure_types: list[str]
+    reason: str
+
+
+class ArtifactVerification(Model):
+    artifact_id: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    verified: Literal[True] = True
+
+
+class ScientificWorkflowReport(Model):
+    status: Literal['completed', 'error'] = 'error'
+    stage: str = 'dataset_inspection'
+    description: str = 'Trusted local CSV/model demonstration; references are a measured local baseline.'
+    summary: str = 'Workflow has not completed.'
+    dataset_inspection: DatasetSummary | None = None
+    dataset_processing: DatasetProcessingResult | None = None
+    baseline: ExperimentResult | None = None
+    replication: ReplicationReport | None = None
+    optimization: OptimizationResult | None = None
+    repeated_optimization: OptimizationResult | None = None
+    repeatability: RepeatabilityAssessment | None = None
+    artifacts_verified: list[ArtifactVerification] = Field(default_factory=list)
+    error: ExecutionError | None = None

@@ -5,44 +5,13 @@ it to user/Gemini proposals: a subprocess is NOT a security sandbox.
 """
 
 import json
-import os
-from pathlib import Path
-import subprocess
-import sys
-import time
+import hashlib
 
-from .contracts import ExecutionFailure
 from .experiment import ExperimentService
 from .iterate import IterationService, optimization_digest
-from .schemas import ExecutionError, ExecutionOutput, OptimizationRequest, ResearcherApproval
-
-
-class _TrustedDemoExecutor:
-    def execute(self, request):
-        started = time.monotonic()
-        # Fresh process per trial; no application credentials are inherited.
-        allowed = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR',
-                   'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'LC_ALL',
-                   'MPLCONFIGDIR'}
-        environment = {name: value for name, value in os.environ.items() if name.upper() in allowed}
-        environment['PYTHONIOENCODING'] = 'utf-8'
-        try:
-            process = subprocess.run(
-                [sys.executable, '-m', 'pre_science.worker'], input=request.model_dump_json(),
-                text=True, encoding='utf-8', capture_output=True, timeout=request.timeout_seconds,
-                cwd=Path(__file__).resolve().parents[1], env=environment, check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return ExecutionOutput(status='timeout', exit_code=124,
-                                   execution_time=time.monotonic() - started,
-                                   error=ExecutionError(type='Timeout', message='Trusted local trial exceeded its timeout'))
-        try:
-            output = ExecutionOutput.model_validate_json(process.stdout)
-        except ValueError:
-            raise ExecutionFailure('Trusted worker returned invalid structured output') from None
-        if process.returncode != output.exit_code:
-            raise ExecutionFailure('Trusted worker exit status did not match its output')
-        return output
+from .integration import compare_optimization_runs
+from .schemas import OptimizationRequest, ResearcherApproval
+from .trusted_demo import TrustedDemoExecutor as _TrustedDemoExecutor
 
 
 def iris_request() -> OptimizationRequest:
@@ -81,16 +50,16 @@ def main():
         approved=True, approved_by='trusted-local-demo',
         specification_sha256=optimization_digest(request),
     )
-    service = IterationService(ExperimentService(_TrustedDemoExecutor()))
+    service = IterationService(ExperimentService(_TrustedDemoExecutor({hashlib.sha256(request.code.encode()).hexdigest()})))
     first, repeated = service.run(request), service.run(request)
-    signature = lambda report: [(trial.suggested_parameters, trial.objective_value, trial.status)
-                                for trial in report.trials]
-    reproducible = signature(first) == signature(repeated)
+    assessment = compare_optimization_runs(first, repeated)
+    reproducible = assessment.reproducible
     # Preserve evidence even when runtime failures make the repeat check fail.
     print(json.dumps({
         'description': 'Local Iris validation-set tuning; not a published reproduction or independent test result',
         'first_run': first.model_dump(mode='json'),
         'repeated_run': repeated.model_dump(mode='json'), 'reproducible': reproducible,
+        'repeatability': assessment.model_dump(mode='json'),
     }, indent=2, allow_nan=False))
     if first.status != 'completed' or repeated.status != 'completed':
         raise RuntimeError('Trusted demo did not complete both studies; inspect the emitted reports')
