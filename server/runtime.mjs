@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { terminalService } from './terminal.mjs';
+import { composeLatex } from './ai/compose.mjs';
 import { proposeLatexRepair } from './ai/repair.mjs';
 import { workerEnvironment } from './worker-env.mjs';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -179,6 +180,7 @@ export function runtimePlugin() {
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 5000000) return send(413, { error: 'Project request exceeds 5 MB.' }); }
         const data = JSON.parse(raw);
+        if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
         if (req.url === '/api/repair/latex') return send(200, await proposeLatexRepair(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));

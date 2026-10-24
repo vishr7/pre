@@ -29,7 +29,7 @@ Each project saves its files and cells separately on this device. Existing singl
 
 ## AI compile repair
 
-When a **LaTeX cell** fails, PRE automatically asks the configured Gemini model for a minimal fix. The original source remains unchanged. PRE validates exact-quote edits, compiles the proposed source with Tectonic, and shows **Original / Proposed fix** inside that same cell.
+When a **LaTeX cell** fails, PRE automatically asks the configured Gemini model for a minimal fix. The original source remains unchanged. PRE validates exact-quote edits, compiles the proposed source with Tectonic, and shows a single inline diff inside that same cell, with green additions and red removals. The editor automatically jumps to the first changed line.
 
 - **Accept fix** applies the complete proposed patch and displays its verified PDF. It is enabled only after successful compilation.
 - **Reject** discards the suggestion and restores the original editable cell.
@@ -111,3 +111,7 @@ npm run build
 ```
 
 The extended suite requires scientific Python packages and Tectonic. It verifies real plot/PDF generation in addition to state persistence, language isolation, errors, file imports, path traversal rejection, timeouts, and cancellation.
+
+### Generate LaTeX in a cell
+
+Type an instruction on its own line, for example `pre write a centered title saying HW 7 - 432`, then press Enter (Shift+Enter inserts a normal newline). You can also click AI edit or Compile to process the first PRE command. PRE replaces only that instruction line, checks compilation, and shows an inline change for Accept/Reject. Surrounding source stays intact. Requires the server-side Gemini configuration described above; the cell context and instruction are sent to Gemini. External runtimes must implement `POST /api/compose/latex` with `{source, line}` (1-based line) returning the same proposal shape as the repair endpoint.
