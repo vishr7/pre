@@ -1,5 +1,17 @@
 # Scientific execution foundation
 
+## Multi-seed robustness evaluation
+
+`pre_science.robustness.RobustnessService` runs approved, digest-bound multi-seed
+requests sequentially through `ExperimentService`. It preserves per-run evidence,
+dataset/code/source provenance, missing/failure counts and dependency versions;
+it calculates metric-specific sample statistics, optional Student t intervals
+and user-defined threshold assessments without declaring scientific validity.
+The worker now records seed-application scope. No production isolation is added.
+See the [Prompt 9 handoff](science-handoff.md#multi-seed-evaluation-prompt-9)
+for schemas, approval/backend contracts, assumptions, plotting, source helpers
+and the real `python -m pre_science.demo_robustness` demonstration.
+
 This package is independent of the Node notebook runtime. It installs no routes,
 does not start FastAPI, and does not implement Docker or cloud storage.
 Python 3.10+ is required; use a version supported by the scientific

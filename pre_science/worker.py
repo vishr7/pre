@@ -88,7 +88,11 @@ def run_worker(request: ExperimentRequest, *, artifact_store: ArtifactStore | No
         artifacts=artifacts,
         error=error, execution_time=time.monotonic() - started,
         execution_metadata={'python_version': platform.python_version(), 'dependencies': dependencies,
-                            'artifact_errors': artifact_errors, 'process_id': os.getpid()},
+                            'artifact_errors': artifact_errors, 'process_id': os.getpid(),
+                            'seed_application': {'requested_seed': request.random_seed,
+                                'applied_before_code': ['python.random', 'numpy.random.legacy'] if 'np' in locals() else [],
+                                'code_can_override': True,
+                                'uncontrolled': ['numpy.default_rng without explicit seed', 'library-specific RNGs', 'hardware nondeterminism']}},
     )
 
 

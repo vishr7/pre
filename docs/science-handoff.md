@@ -1,5 +1,116 @@
 # Scientific integration handoff
 
+## Multi-seed evaluation (Prompt 9)
+
+`pre_science.robustness` defines `RobustnessRequest`, `RobustnessReport`,
+`SeedRun`, `MetricSummary`, `RobustnessThresholds` and `RobustnessService`.
+It reuses `ExperimentService` and the injected executor, sequentially. No routes,
+UI, AI calls, database or separate execution engine are added.
+
+```python
+from pre_science.robustness import RobustnessRequest, RobustnessService, robustness_digest
+from pre_science.schemas import ResearcherApproval
+
+request = RobustnessRequest(
+    study_id='seed-evaluation', experiment_id='approved-experiment', code=approved_code,
+    parameters=approved_parameters, seeds=[1, 7, 21, 42, 123], metrics=['accuracy'],
+    timeout_seconds=30, max_duration_seconds=180, confidence_interval=True,
+    thresholds={'accuracy': {'max_std': 0.05, 'min_successful_runs': 5}},
+)
+# Only after authenticated researcher review of this complete request:
+request.approval = ResearcherApproval(approved=True, approved_by=researcher_id,
+    specification_sha256=robustness_digest(request))
+report = RobustnessService(experiments, artifact_store=figure_store).run(
+    request, available_dataset_ids=authorized_dataset_ids,
+    available_asset_ids=authorized_asset_ids)
+payload = report.model_dump(mode='json')
+```
+
+Person 4 supplies `experiments = ExperimentService(restricted_executor)` and
+authorized dataset/asset IDs. `dataset` uses the existing `ReplicationDataset`,
+including source/processed hashes and transformations. Approval is domain-separated
+and binds all settings, source provenance, metrics, seeds, code, parameters and
+dataset. Changing any field requires new approval. Seeds are 2–20 unique integers
+in [0, 2^32−1]; metrics must be explicitly named. Per-run deadlines are 1–300
+seconds; the study budget is 1–3600 seconds. A remaining budget below one second
+prevents launching another run; each trial timeout is capped to remaining whole
+seconds. The executor must actually terminate work on expiry. Scheduler budgeting
+does not interrupt backend summary/plot generation or enforce hard wall time.
+
+Reports preserve requested seeds, successful/failed execution counts, unattempted
+seeds, unique per-run execution IDs, complete valid execution records/errors,
+missing metrics, dependency versions, dataset/code/source provenance and timing.
+`completed_runs` counts successful executions, even if a selected metric is
+missing. A fully attempted study with failures/missing metrics has status
+`completed_with_failures`; budget exhaustion is separate. Malformed executor
+outputs are rejected and recorded as sanitized `InvalidExecution` errors.
+Only metrics from successful executions contribute to summaries. Missing metrics
+are excluded independently for each metric. No fabricated zeros are inserted.
+
+Each summary includes contributing seeds/values/count, arithmetic mean, median,
+min/max/range, sample standard deviation (ddof=1), and standard error s/sqrt(n).
+With n<2, sample standard deviation, standard error and intervals are unavailable.
+With n=0 all numerical aggregates are unavailable. Optional 95% Student t bounds
+are mean ± t(0.975,n−1)×standard_error. These assume independent observations and
+an approximately normal sampling distribution of the mean; overlapping dataset
+splits can violate independence. Intervals are not proof of robustness and are
+not clipped to metric bounds. Overflowing statistics are unavailable. Threshold
+results are per condition (`True`, `False`, or `None` when undefined); minimum
+successful count means valid observations for that metric. No global robust/
+unreliable verdict is inferred, with or without thresholds.
+
+The worker records `seed_application`: Python `random.seed` and NumPy legacy
+`np.random.seed` are applied before code. Code may override these. NumPy
+`default_rng`, library-specific random states and hardware are not automatically
+controlled. The demo explicitly passes `random_seed` into both split and model.
+Other injected runtimes may omit this evidence: a requested seed alone does not
+prove application. Fresh globals are insufficient to isolate module/filesystem
+state: Person 4 must use fresh restricted workers, never persistent kernels.
+The local trusted executor is not a sandbox and is not suitable for user/AI code.
+
+`generate_figure=True` requires an injected `ArtifactStore`; it plots each metric
+by seed with an observed mean line using existing bounded PNG capture. Run-level
+artifacts remain in each execution, summary figures in report `artifacts`.
+Retrieve/verify and upload through the existing authorized handoff; cleanup only
+after persistence. Plot failures preserve numerical reports and add a warning.
+All scheduling and plotting must remain sequential; no concurrency guarantee.
+
+`robustness_from_replication(report, study_id=..., seeds=..., metrics=...)` and
+`robustness_from_optimization(...)` create new unapproved proposals from actual
+executed configurations, preserving source IDs/digests and leaving originals
+unchanged. For original experiments supply their approved code/parameters and
+explicit source identifiers. Optimized configurations need separate approval;
+reusing selection data does not establish independent test performance.
+
+Person 1 can display `runs` and `summaries` directly from the JSON response;
+the existing Markdown tool adapter and LaTeX formatter are unchanged and do not
+implicitly accept robustness reports. Person 4 owns any endpoint/adapter wiring.
+
+Run `.\.venv\Scripts\python.exe -m pre_science.demo_robustness`. It executes five
+fixed Iris decision-tree runs twice in fresh processes, verifies matching accuracy
+sequences and real PNG bytes, and saves both full reports under
+`.runtime/robustness/<run>/report.json`. This measures split sensitivity as well
+as model randomness; shared Iris data are not an independent test evaluation.
+No cloud services or keys are required. Tests:
+`python -m pytest tests/science/test_robustness.py -q` (focused) or
+`python -m pytest tests/science -q` (complete scientific suite).
+
+Prompt 9 final scientific suite: **267 passed, 2 skipped, 14 warnings** in
+57.57 seconds. Skips remain unavailable Tectonic and Windows symlink permissions;
+warnings are existing noninteractive Agg `show()` calls. The robustness tests
+separate mocked statistics/scheduling/authorization checks from real fresh-worker
+Python/NumPy seed repeatability and PNG retrieval. These results do not validate
+Docker isolation or a deployed endpoint.
+
+The standalone five-seed Iris demo completed and repeated the exact accuracy
+sequence: seeds 1, 7, 21, 42, 123 produced 0.9777777778, 0.9777777778,
+0.9555555556, 0.9777777778, 0.9111111111. Mean 0.96; sample standard deviation
+0.0289742329; standard error 0.0129576709; min/max 0.9111111111/0.9777777778;
+illustrative 95% t interval [0.9240237381, 0.9959762619]. Both studies generated
+real 600×300 PNGs and verified their bytes. The overlapping Iris splits mean the
+interval's independence assumption is questionable; it is descriptive output,
+not evidence of a scientifically robust model or independent held-out evaluation.
+
 ## Automatic LaTeX tables (Prompt 8)
 
 `pre_science.latex_tables` is a pure formatter; it executes no code, calls no AI,
