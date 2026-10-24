@@ -40,10 +40,31 @@ class ExecutionError(Model):
 
 
 class Artifact(Model):
-    """Reserved metadata contract; artifact generation is a later feature."""
+    """Legacy artifact contract retained for executor compatibility."""
     name: str
     media_type: str
     path: str
+
+
+class FigureArtifact(Model):
+    artifact_id: str = Field(pattern=r'^[0-9a-f]{32}-[0-9a-f]{32}$')
+    experiment_id: str = Field(min_length=1, max_length=128)
+    artifact_type: Literal['figure'] = 'figure'
+    filename: str = Field(pattern=r'^[0-9a-f]{32}\.png$')
+    mime_type: Literal['image/png'] = 'image/png'
+    size_bytes: int = Field(gt=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    artifact_reference: str = Field(pattern=r'^[0-9a-f]{32}-[0-9a-f]{32}$')
+
+    @model_validator(mode='after')
+    def consistent_reference(self):
+        if self.artifact_reference != self.artifact_id:
+            raise ValueError('Artifact reference must equal its opaque identifier')
+        if self.filename != self.artifact_id.split('-')[1] + '.png':
+            raise ValueError('Filename must match the artifact identifier')
+        return self
 
 
 class ExecutionOutput(Model):
@@ -53,7 +74,7 @@ class ExecutionOutput(Model):
     execution_time: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     exit_code: int
     metrics: dict[str, Annotated[float, Field(allow_inf_nan=False)]] = Field(default_factory=dict)
-    artifacts: list[Artifact] = Field(default_factory=list)
+    artifacts: list[FigureArtifact | Artifact] = Field(default_factory=list)
     error: ExecutionError | None = None
     execution_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
