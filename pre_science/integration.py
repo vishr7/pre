@@ -106,5 +106,22 @@ def tool_response(report) -> dict:
     elif isinstance(report, ScientificWorkflowReport):
         lines = [_text(report.description), _text(report.summary)]
     else:
-        raise TypeError('Unsupported scientific report type')
+        from .robustness import RobustnessReport
+        from .statistics import StatisticalReport
+        from .latex_tables import LatexTableResponse
+        if not isinstance(report, (RobustnessReport, StatisticalReport, LatexTableResponse)):
+            raise TypeError('Unsupported scientific report type')
+        report = type(report).model_validate(report.model_dump(warnings=False))
+        if isinstance(report, RobustnessReport):
+            lines = [f'Robustness: **{report.status}**. Successful executions: {report.completed_runs}; failed: {report.failed_runs}.']
+            lines += [f'- {_text(name)}: n={item.observation_count}, mean={item.mean!r}, sample SD={item.sample_std!r}.'
+                      for name, item in report.summaries.items()]
+            lines += ['Warning: ' + _text(item) for item in report.warnings]
+        elif isinstance(report, StatisticalReport):
+            lines = [_text(report.summary)]
+            lines += ['Warning: ' + _text(item) for item in report.assumption_warnings]
+            lines += ['Limitation: ' + _text(item) for item in report.limitations]
+        else:
+            lines = [f'Generated {report.table_type} table. Not compiled.']
+            lines += ['Warning: ' + _text(item) for item in report.warnings]
     return {'result': '\n\n'.join(lines), 'scientific': report.model_dump(mode='json')}

@@ -1,5 +1,24 @@
 # Scientific execution foundation
 
+## Unified scientific results
+
+`results.normalize_scientific_result()` accepts the existing validated experiment,
+dataset, replication, optimization, robustness, statistics, LaTeX and workflow
+models. `results.scientific_response()` adds an opt-in typed unified
+`{result, scientific}` contract. The existing `integration.tool_response()` keeps
+original report shapes/text and now also accepts robustness, statistics and LaTeX.
+Do not replace its existing response shape implicitly.
+
+Unified evidence includes full-precision typed metrics, original status,
+completeness, source freshness, opaque artifacts, provenance and the complete
+original record or caller-authorized opaque reference. Absolute paths require an
+original reference and are omitted from presentation. IDs/dates are not invented.
+Next actions are deterministic review/view/generation/draft descriptors; none
+executes work, selects tests, grants approval, accesses storage or creates URLs.
+See the [Prompt 12 handoff](science-handoff.md#unified-results-and-next-actions-prompt-12)
+for the exact frontend/backend examples, rule prerequisites, freshness scope,
+security boundaries and genuine retained-record demo.
+
 ## Statistical validation
 
 `pre_science.statistics.analyze_statistics(StatisticalRequest)` calculates explicit
