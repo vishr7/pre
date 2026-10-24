@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile, readFile, rm, lstat } from 'node:fs/promises
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { terminalService } from './terminal.mjs';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const workerRoot = fileURLToPath(new URL('./', import.meta.url));
 export function safePath(root, name) {
@@ -108,6 +109,14 @@ export class Runtime {
     if (session.compile) { this.kill(session.compile); session.compile = null; }
     return { ok: true };
   }
+  async release({ sessionId }) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return { ok: true };
+    await this.reset({ sessionId });
+    this.sessions.delete(sessionId);
+    await rm(await session.dir, { recursive: true, force: true });
+    return { ok: true };
+  }
   async compile({ sessionId, source, files, entrypoint = 'paper/main.tex' }) {
     const session = await this.session(sessionId);
     if (session.running) throw new Error('This notebook is already running a cell.');
@@ -149,6 +158,7 @@ export class Runtime {
 export function runtimePlugin() {
   const runtime = new Runtime();
   function attach(server) {
+    const terminal = terminalService(server, runtime);
     server.httpServer?.once('close', () => void runtime.close());
     server.middlewares.use(async (req, res, next) => {
       if (!req.url?.startsWith('/api/')) return next();
@@ -168,6 +178,9 @@ export function runtimePlugin() {
         const data = JSON.parse(raw);
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));
+        if (req.url === '/api/terminal/open') return send(200, await terminal.open(data));
+        if (req.url === '/api/terminal/close') return send(200, terminal.close(data));
+        if (req.url === '/api/runtime/release') { terminal.close(data); return send(200, await runtime.release(data)); }
         if (req.url === '/api/runtime/reset') return send(200, await runtime.reset(data));
         return send(501, { error: 'AI tools require an AI backend. Configure its URL in Settings.' });
       } catch (error) { return send(400, { error: error.message }); }
