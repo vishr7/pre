@@ -312,7 +312,7 @@ def test_real_iris_training_through_fresh_worker_processes():
     request = iris_request()
     request.n_trials = 2
     request.code += '\nimport matplotlib.pyplot as plt\nplt.figure(figsize=(2, 2))\nplt.plot([1, 2])'
-    report = IterationService(ExperimentService(_TrustedDemoExecutor())).run(approve(request))
+    report = IterationService(ExperimentService(_TrustedDemoExecutor({hashlib.sha256(request.code.encode()).hexdigest()}))).run(approve(request))
     assert report.status == 'completed'
     assert report.successful_trial_count == 2 and report.failed_trial_count == 0
     assert 0 <= report.best_objective_value <= 1

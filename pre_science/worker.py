@@ -43,11 +43,12 @@ def run_worker(request: ExperimentRequest, *, artifact_store: ArtifactStore | No
             raise ValueError(f'Metric already reported: {name}')
         metrics[name] = number
 
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    with contextlib.ExitStack() as resources, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
             os.environ['MPLBACKEND'] = 'Agg'
             import matplotlib
             matplotlib.use('Agg', force=True)
+            resources.enter_context(matplotlib.rc_context())
             import matplotlib.pyplot as plt
             plt.close('all')  # Each job owns a fresh figure state.
             import numpy as np
@@ -87,7 +88,7 @@ def run_worker(request: ExperimentRequest, *, artifact_store: ArtifactStore | No
         artifacts=artifacts,
         error=error, execution_time=time.monotonic() - started,
         execution_metadata={'python_version': platform.python_version(), 'dependencies': dependencies,
-                            'artifact_errors': artifact_errors},
+                            'artifact_errors': artifact_errors, 'process_id': os.getpid()},
     )
 
 

@@ -736,3 +736,23 @@ Worker output capture currently buffers in memory; outer resource limits are
 required. Authentication, authorization, approval, cancellation, persistence,
 and deployment remain backend responsibilities. Do not connect this worker to
 the existing Node runtime as a production execution strategy.
+# Prompt 7 integration handoff
+
+The current checkout and remaining team-owned integration work are documented in
+[science-handoff.md](science-handoff.md). Run `python -m pre_science.demo_end_to_end`
+for the complete trusted CSV-to-model-to-comparison-to-Optuna workflow. It retains
+JSON reports and verified PNG/CSV artifacts, including partial failure evidence.
+
+`pre_science.integration` adds deterministic `{result, scientific}` response
+adapters, strict scientific proposal validation, byte-level artifact checksum
+verification and repeatability diagnostics. These utilities create no routes,
+call no AI services and grant no execution authorization. The existing Node tool
+routes still need backend integration; FastAPI currently provides project CRUD.
+
+Local demos now share `TrustedDemoExecutor`, which accepts an explicit allowlist
+of developer-authored code hashes, uses fresh processes and temporary working
+directories, filters inherited environment variables and rejects overlapping calls
+on one executor. This is a trusted demonstration transport, never a sandbox or a
+production untrusted-code adapter. Production still requires Person 4's isolated
+executor. Matplotlib rcParams are restored after direct worker calls; direct
+in-process workers remain unsuitable for concurrent execution.
