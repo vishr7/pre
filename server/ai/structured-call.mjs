@@ -1,5 +1,5 @@
 // Server-only Gemini transport. API credentials never enter the browser bundle.
-export async function structured_call({ prompt, schema, validate }, { fetchImpl = fetch, env = process.env, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+export async function structured_call({ prompt, schema, validate, images = [] }, { fetchImpl = fetch, env = process.env, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   const key = env.GEMINI_API_KEY;
   const model = env.GEMINI_MODEL?.replace(/^models\//, '');
   if (!key || !model) throw new Error('AI generation needs GEMINI_API_KEY and GEMINI_MODEL in .env. Restart the dev server after setting them.');
@@ -8,7 +8,7 @@ export async function structured_call({ prompt, schema, validate }, { fetchImpl 
     let response;
     try { response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt + feedback }] }],
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt + feedback }, ...images.map(image => ({inlineData: image}))] }],
         generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema } }),
       signal: AbortSignal.timeout(30000),
     });

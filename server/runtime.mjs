@@ -1,3 +1,4 @@
+import { composeImage } from './ai/image-compose.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile, readFile, rm, lstat } from 'node:fs/promises';
@@ -180,6 +181,7 @@ export function runtimePlugin() {
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 5000000) return send(413, { error: 'Project request exceeds 5 MB.' }); }
         const data = JSON.parse(raw);
+        if (req.url === '/api/compose/image') return send(200, await composeImage(data));
         if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
         if (req.url === '/api/repair/latex') return send(200, await proposeLatexRepair(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
