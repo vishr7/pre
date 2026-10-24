@@ -77,3 +77,16 @@ test('Leaving a project releases its kernel and session', async t => {
  assert.equal(r.sessions.size,0);
  assert.match((await r.execute(args('value'))).error,/NameError/);
 });
+
+test('A new session recycles the least recently used idle session instead of failing', async t => {
+ const r = await setup(t);
+ for (let i = 0; i < 16; i++) { const s = await r.session(`s${i}`); s.lastUsed = i; }
+ r.sessions.get('s0').running = true;   // busy sessions are never evicted
+ r.sessions.get('s1').lastUsed = 999;   // recently used
+ await r.session('new');
+ assert.equal(r.sessions.size, 16);
+ assert.ok(r.sessions.has('new') && r.sessions.has('s0') && r.sessions.has('s1'));
+ assert.ok(!r.sessions.has('s2'), 'oldest idle session is released');
+ for (const s of r.sessions.values()) s.running = true;
+ await assert.rejects(r.session('another'), /busy/);
+});

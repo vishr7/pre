@@ -28,3 +28,8 @@ test('retries connection failures and caps Retry-After delays',async()=>{
  }});
  assert.deepEqual(delays,[1000,5000]);
 });
+test('reports generation timeouts separately without repeating the long request',async()=>{
+ let calls=0;
+ await assert.rejects(structured_call(args,{env,fetchImpl:async()=>{calls++;throw new DOMException('Timeout','TimeoutError');}}),/took too long/);
+ assert.equal(calls,1);
+});

@@ -42,19 +42,29 @@ async function writeFiles(root, files = []) {
 export class Runtime {
   constructor({ root = path.join(projectRoot, '.runtime'), timeout = 30000 } = {}) {
     this.root = root; this.timeout = timeout; this.sessions = new Map(); this.pdfs = new Map();
-    this.python = process.env.PRE_PYTHON || (existsSync(path.join(projectRoot, '.venv/bin/python')) ? path.join(projectRoot, '.venv/bin/python') : 'python3');
-    this.tectonic = process.env.PRE_TECTONIC || (existsSync(path.join(projectRoot, '.runtime/bin/tectonic')) ? path.join(projectRoot, '.runtime/bin/tectonic') : 'tectonic');
+    // Windows venvs use Scripts/python.exe and binaries end in .exe.
+    const venvPython = path.join(projectRoot, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
+    const localTectonic = path.join(projectRoot, process.platform === 'win32' ? '.runtime/bin/tectonic.exe' : '.runtime/bin/tectonic');
+    this.python = process.env.PRE_PYTHON || (existsSync(venvPython) ? venvPython : 'python3');
+    this.tectonic = process.env.PRE_TECTONIC || (existsSync(localTectonic) ? localTectonic : 'tectonic');
   }
   async session(id) {
     if (typeof id !== 'string' || !/^[\w-]{1,80}$/.test(id)) throw new Error('A valid sessionId is required.');
     if (!this.sessions.has(id)) {
-      if (this.sessions.size >= 16) throw new Error('Too many kernels. Restart the local server to release unused sessions.');
+      // Tabs that crashed or reloaded never release their session; recycle the least recently used idle one.
+      while (this.sessions.size >= 16) {
+        const idle = [...this.sessions].filter(([, s]) => !s.running).sort(([, a], [, b]) => a.lastUsed - b.lastUsed)[0];
+        if (!idle) throw new Error('Too many kernels are busy. Stop a running cell or restart the local server.');
+        await this.release({ sessionId: idle[0] });
+      }
+      if (this.sessions.has(id)) return this.session(id); // created concurrently while we were evicting
       // Register before awaiting directory creation so concurrent requests share the same lock.
       const dir = mkdir(this.root, { recursive: true }).then(() => mkdtemp(path.join(this.root, 'session-')));
       const session = { workers: {}, running: false, compile: null, dir };
       this.sessions.set(id, session);
     }
     const session = this.sessions.get(id);
+    session.lastUsed = Date.now();
     session.directory = await session.dir;
     return session;
   }
@@ -128,7 +138,7 @@ export class Runtime {
     await rm(await session.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     return { ok: true };
   }
-  async compile({ sessionId, source, files, entrypoint = 'paper/main.tex' }) {
+  async compile({ sessionId, source, files, assets = [], entrypoint = 'paper/main.tex' }) {
     const session = await this.session(sessionId);
     if (session.running) throw new Error('This notebook is already running a cell.');
     session.running = true;
@@ -136,6 +146,13 @@ export class Runtime {
     try {
       dir = await mkdtemp(path.join(this.root, 'latex-'));
       await writeFiles(dir, files);
+      if(!Array.isArray(assets)||assets.length>20)throw new Error('Too many figure assets.');
+      for(const asset of assets){
+        if(typeof asset.path!=='string'||!/^figures\/[a-zA-Z0-9_-]+\.png$/.test(asset.path)||typeof asset.data!=='string'||asset.data.length>2000000||! /^[A-Za-z0-9+/]+={0,2}$/.test(asset.data))throw new Error('Invalid figure asset.');
+        const bytes=Buffer.from(asset.data,'base64');
+        if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Figure is not a PNG.');
+        const target=safePath(dir,asset.path);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,bytes);
+      }
       let input;
       if (source !== undefined) {
         if (typeof source !== 'string' || source.length > 200000) throw new Error('LaTeX must be text under 200 KB.');

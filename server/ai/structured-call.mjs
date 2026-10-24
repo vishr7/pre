@@ -4,16 +4,21 @@ export async function structured_call({ prompt, schema, validate, images = [] },
   const model = env.GEMINI_MODEL?.replace(/^models\//, '');
   if (!key || !model) throw new Error('AI generation needs GEMINI_API_KEY and GEMINI_MODEL in .env. Restart the dev server after setting them.');
   let feedback = '';
+  const deadline = Date.now() + 105000;
   for (let attempt = 0; attempt < 3; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining < 1000) throw new Error('Gemini took too long to respond. Try a smaller edit or one section at a time. Your source is unchanged.');
     let response;
     try { response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt + feedback }, ...images.map(image => ({inlineData: image}))] }],
         generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema } }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(Math.min(90000, remaining)),
     });
-    } catch {
-      if (attempt === 2) throw new Error('Could not reach Gemini after 3 attempts. Check your connection and try again. Your cell is unchanged.');
+    } catch (error) {
+      const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+      if (timedOut) throw new Error('Gemini took too long to generate this response. Try one section at a time or a smaller edit. Your source is unchanged.');
+      if (attempt === 2) throw new Error('The server could not connect to Gemini after 3 attempts. Check the server network connection and try again. Your source is unchanged.');
       await sleep(1000 * 2 ** attempt);
       continue;
     }
