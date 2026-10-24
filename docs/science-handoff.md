@@ -1,5 +1,128 @@
 # Scientific integration handoff
 
+## Statistical validation (Prompt 10)
+
+`pre_science.statistics` provides `StatisticalRequest`, `StatisticalReport`,
+`DescriptiveStatistics`, `ConfidenceInterval`, `EffectSize`,
+`analyze_statistics(request)` and `statistics_from_robustness(...)`. There is no
+execution, AI, storage or public endpoint in this engine; NumPy/SciPy perform all
+calculations. Tests are explicitly selected, never chosen by a normality check.
+
+```python
+from pre_science.statistics import StatisticalRequest, analyze_statistics
+
+request = StatisticalRequest(
+    analysis_id='comparison-1', method_a='Method A', method_b='Method B',
+    observations_a=[1.0, 3.0, 5.0], observations_b=[0.0, 2.0, 4.0],
+    test='welch', alternative='two-sided', alpha=0.05,
+    source_ids=['stored-study-a', 'stored-study-b'],
+    provenance={'description': 'Illustrative input syntax, not executed findings'},
+)
+payload = analyze_statistics(request).model_dump(mode='json')
+```
+
+Available tests: `welch` (SciPy `ttest_ind(equal_var=False)`), `paired_t`
+(`ttest_rel`, requires `paired=True` and equal lengths) and `mann_whitney`
+(`mannwhitneyu(method='auto')`, independent groups). All support `two-sided`,
+`greater` and `less`. MVP inputs require 2–10,000 finite observations per group;
+no missing values or numeric strings are coerced/dropped. No automatic test
+fallback or data cleaning occurs. Paired order is preserved; equal length alone
+does not justify pairing. `greater` means method A exceeds B.
+
+Reports retain the full validated input, source IDs, provenance and optional
+units, test/hypothesis/direction, group descriptions, paired-difference
+descriptions, statistic, degrees of freedom, p-value, alpha, strict `p < alpha`,
+mean difference A−B, confidence interval, effect size, warnings, limitations,
+dependency versions and UTC timestamp. Descriptions include n, mean, sample SD
+(ddof=1), median, min/max and SE=s/sqrt(n). The human-readable `summary` is
+deterministic; report timestamps intentionally change. Original input is untouched.
+
+Welch SE=sqrt(s_A²/n_A+s_B²/n_B) and Welch–Satterthwaite degrees of freedom;
+paired SE=SD(A−B)/sqrt(n), df=n−1. Intervals use difference ± t(1−alpha/2,df)×SE.
+They are explicitly **two-sided at 1−alpha even for one-sided tests**, so interval
+exclusion of zero is not interchangeable with one-sided test rejection.
+No Mann–Whitney mean/median interval is implemented. Its mean difference is
+descriptive, not the quantity tested by U. Zero SE, numerical overflow and
+undefined test values produce unavailable fields/reasons, never JSON NaN/Inf.
+No infinite effect sizes are returned for zero denominators.
+
+Independent-sample effect size is Hedges' g=J(df)×(mean_A−mean_B)/pooled sample
+SD, with df=n_A+n_B−2 and exact correction
+J(df)=Gamma(df/2)/(sqrt(df/2)×Gamma((df−1)/2)). This pooled-SD effect-size
+convention does not change Welch's unequal-variance test. Paired Cohen dz is
+mean(A−B)/SD(A−B). Mann–Whitney rank-biserial correlation is
+2U_A/(n_A n_B)−1, positive when A tends to exceed B; ties count half.
+No domain-independent qualitative size labels are assigned.
+
+For existing robustness records:
+
+```python
+from pre_science.statistics import statistics_from_robustness, analyze_statistics
+
+# Trusted caller verifies corresponding data/splits/conditions for each seed.
+request = statistics_from_robustness(
+    report_a, report_b, analysis_id='paired-evaluation', metric='accuracy',
+    test='paired_t', paired=True,
+    conditions_a=verified_condition_ids_a, conditions_b=verified_condition_ids_b,
+)
+payload = analyze_statistics(request).model_dump(mode='json')
+```
+
+The adapter extracts actual metrics from successful per-seed execution records,
+not cached aggregate means. It requires all requested observations to be present
+and successful; incomplete studies need explicit, documented preprocessing outside
+this adapter. It rejects duplicate/missing seeds, missing metrics and disagreeing
+execution seeds. Paired requests require identical seed sets and separately
+supplied, equal, nonblank condition identifiers per seed; B is aligned to A's
+seed order. Pairing is a caller attestation, not an empirical verification by
+the engine. Seeds alone never suffice. Source experiment/study IDs, specification/
+code hashes, datasets, original source provenance and per-seed execution IDs are
+retained. Independent comparisons do not align or truncate observations.
+
+Person 4 resolves authorized stored reports, validates the request and calls this
+pure function in the existing backend. Return sanitized validation errors rather
+than raw input-bearing exceptions. Person 1 displays the structured JSON plus
+`summary`; existing Markdown/LaTeX adapters are unchanged. Optional replication/
+optimization identifiers go in `source_ids`/`provenance`; the robustness adapter
+also preserves those source origins. No original scientific reports are modified.
+
+Assumptions are stated, not claimed verified. Welch requires independent sampling
+units and approximately normal mean sampling distributions. Paired inference
+requires independent, meaningfully corresponding pairs and approximately normal
+differences for exact small-sample inference. U compares distributions/stochastic
+ordering, not universally medians when shapes differ. Shared datasets or overlapping
+splits may violate independence. Selection on evaluation data biases comparisons.
+Significance establishes neither practical importance, causality, valid science,
+nor reproduction; nonsignificance is not equivalence. P-values are not posterior
+probabilities that the null is true. No multiplicity correction, power analysis,
+statistical visualization or automatic manuscript/table insertion is added.
+
+Run `.\.venv\Scripts\python.exe -m pre_science.demo_statistics` for actual trusted
+Iris depth-1 versus depth-3 trees on five explicitly matched seeded stratified
+splits. It saves both robustness reports and a paired statistical report under
+`.runtime/statistics/<run>/`. The shared Iris observations make inference
+illustrative, despite justified pair correspondence. Local execution is developer
+code only; untrusted code still requires Person 4's restricted executor.
+Tests: `python -m pytest tests/science/test_statistics.py -q` or the complete
+`python -m pytest tests/science -q` suite.
+
+Prompt 10 final scientific suite: **309 passed, 2 skipped, 14 warnings** in
+59.48 seconds. Skips remain unavailable Tectonic and Windows symlink permissions;
+warnings are existing noninteractive Agg calls. Statistical tests compare actual
+NumPy/SciPy calculations (all alternatives, intervals, effect sizes, ties,
+degeneracy, threshold boundaries and pairing). The installed SciPy can return an
+undefined p-value for all-tied Mann–Whitney inputs; the report preserves finite U
+and rank-biserial values while marking inference unavailable, rather than
+substituting a p-value. No deployed backend or Docker protections were tested.
+
+The real demo completed: depth-1 accuracies were 0.6666666667 on all five seeds;
+depth-3 accuracies were 0.9777777778, 0.9777777778, 0.9555555556, 0.9777777778,
+0.9111111111. Paired A−B mean difference −0.2933333333; t=−22.6378, df=4,
+p≈0.000022552; 95% two-sided mean-difference interval
+[−0.3293095952, −0.2573570715]; Cohen dz=−10.1239378528. These are actual
+executed measurements with illustrative inference under questionable independent-
+pair assumptions, not proof of independent improvement or scientific validity.
+
 ## Multi-seed evaluation (Prompt 9)
 
 `pre_science.robustness` defines `RobustnessRequest`, `RobustnessReport`,
