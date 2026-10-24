@@ -5,6 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { terminalService } from './terminal.mjs';
+import { composeLatex } from './ai/compose.mjs';
+import { proposeLatexRepair } from './ai/repair.mjs';
+import { workerEnvironment } from './worker-env.mjs';
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const workerRoot = fileURLToPath(new URL('./', import.meta.url));
 export function safePath(root, name) {
@@ -53,7 +56,7 @@ export class Runtime {
     const python = language === 'python';
     const child = spawn(python ? this.python : process.execPath, [path.join(workerRoot, python ? 'python-worker.py' : 'javascript-worker.mjs')], {
       cwd: session.directory, stdio: ['pipe', 'ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32',
-      env: { ...process.env, PYTHONUNBUFFERED: '1', MPLBACKEND: 'Agg', MPLCONFIGDIR: path.join(session.directory, '.matplotlib') },
+      env: { ...workerEnvironment(), PYTHONUNBUFFERED: '1', MPLBACKEND: 'Agg', MPLCONFIGDIR: path.join(session.directory, '.matplotlib') },
     });
     const worker = { child, pending: null, buffer: '', errors: '', count: 0 };
     session.workers[language] = worker;
@@ -114,7 +117,8 @@ export class Runtime {
     if (!session) return { ok: true };
     await this.reset({ sessionId });
     this.sessions.delete(sessionId);
-    await rm(await session.dir, { recursive: true, force: true });
+    // Windows may retain the worker's directory lock briefly after SIGKILL.
+    await rm(await session.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     return { ok: true };
   }
   async compile({ sessionId, source, files, entrypoint = 'paper/main.tex' }) {
@@ -134,7 +138,7 @@ export class Runtime {
       } else input = safePath(dir, entrypoint);
       const output = path.join(dir, 'output'); await mkdir(output);
       const logs = await new Promise((resolve, reject) => {
-        const child = spawn(this.tectonic, ['--untrusted', '--keep-logs', '--outdir', output, input], { cwd: dir, detached: process.platform !== 'win32', env: { ...process.env, TECTONIC_UNTRUSTED_MODE: '1' } });
+        const child = spawn(this.tectonic, ['--untrusted', '--keep-logs', '--outdir', output, input], { cwd: dir, detached: process.platform !== 'win32', env: { ...workerEnvironment(), TECTONIC_UNTRUSTED_MODE: '1' } });
         session.compile = child;
         let log = '';
         const collect = data => { log = (log + data).slice(-100000); };
@@ -151,7 +155,7 @@ export class Runtime {
     } finally { session.running = false; session.compile = null; if (dir) await rm(dir, { recursive: true, force: true }); }
   }
   async close() {
-    for (const [sessionId, session] of this.sessions) { await this.reset({ sessionId }); await rm(await session.dir, { recursive: true, force: true }); }
+    for (const [sessionId, session] of this.sessions) { await this.reset({ sessionId }); await rm(await session.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
     this.sessions.clear(); this.pdfs.clear();
   }
 }
@@ -176,6 +180,8 @@ export function runtimePlugin() {
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 5000000) return send(413, { error: 'Project request exceeds 5 MB.' }); }
         const data = JSON.parse(raw);
+        if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
+        if (req.url === '/api/repair/latex') return send(200, await proposeLatexRepair(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));
         if (req.url === '/api/terminal/open') return send(200, await terminal.open(data));
