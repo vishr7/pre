@@ -70,3 +70,10 @@ test('Simultaneous first cells share one session lock', async t => {
  await assert.rejects(r.execute(args('24')), /already running/);
  assert.equal((await pending).stdout, '42\n');
 });
+test('Leaving a project releases its kernel and session', async t => {
+ const r = await setup(t);
+ await r.execute(args('value = 10'));
+ await r.release({sessionId:'test'});
+ assert.equal(r.sessions.size,0);
+ assert.match((await r.execute(args('value'))).error,/NameError/);
+});
