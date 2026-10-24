@@ -16,6 +16,7 @@ $env:MPLCONFIGDIR = Join-Path (Get-Location) '.venv\matplotlib-config'
 .venv/Scripts/python -m pytest tests/science -q
 .venv/Scripts/python -m pre_science.worker --demo
 .venv/Scripts/python -m pre_science.demo_plots
+.venv/Scripts/python -m pre_science.demo_data
 ```
 
 The demo executes a fixed developer-authored NumPy example, prints real stdout,
@@ -214,7 +215,173 @@ the existing service/worker, retrieves the real PNG by ID, verifies its checksum
 and prints the structured result with retrieval evidence. It retains the PNG
 for inspection. Use `store.cleanup(id)` explicitly when finished.
 
-## Security boundaries
+## CSV inspection and approved processing (implemented)
+
+`pre_science.data.DatasetService` accepts dataset IDs rather than client-supplied
+host paths. Person 4 supplies an authorization mapping for the current caller,
+mapping each approved ID to a relative `.csv` reference under a controlled input
+root. No upload endpoint, cloud client, or database access is implemented here.
+
+```python
+from pre_science.data import DatasetService, DatasetArtifactStore, DatasetLimits
+
+store = DatasetArtifactStore(controlled_output_root)
+service = DatasetService(
+    controlled_input_root,
+    authorized_datasets={"study-123": "uploads/study.csv"},
+    artifact_store=store,
+    limits=DatasetLimits(),
+)
+summary = service.inspect({"dataset_id": "study-123"})
+result = service.process({
+    "dataset_id": "study-123",
+    "transformations": [
+        {"operation": "drop_missing", "columns": ["label"]},
+        {"operation": "drop_duplicates"},
+        {"operation": "fill_median", "columns": ["age", "score"]},
+        {"operation": "standardize", "columns": ["age", "score"], "ddof": 0},
+    ],
+})
+```
+
+Pydantic rejects unknown operations/options, duplicate/blank column selections,
+missing explicit columns (except `drop_duplicates`), and overlong pipelines.
+All columns are checked against the current frame at each step. Service calls
+must represent researcher-approved operations; the service does not infer
+approval from an AI proposal and never chooses a cleaning strategy.
+
+Inspection returns shape, column names/dtypes, missing and unique counts,
+numeric/non-numeric/categorical column lists, duplicate rows beyond their first
+occurrence, and count/mean/population std/min/25th percentile/median/75th
+percentile/max for numerical columns. Non-numeric columns (including booleans)
+are classified as categorical; category values and entire datasets are not
+included in ordinary reports. Unavailable/overflowed statistics are null, with
+warnings, rather than non-JSON NaN/Infinity values.
+
+Input is strict UTF-8 (optional BOM), comma-delimited, with unique nonblank
+headers and a consistent field count. Quoted commas/newlines are supported.
+Blank physical records are rejected rather than silently dropping rows. The
+explicit NA spellings are empty fields, `NA`, `NaN`, `nan`, `NULL`, and `null`;
+other strings/whitespace remain data. Pandas infers dtypes; mixed numeric/text
+columns remain non-numeric and numerical operations reject them. Empty/headerless
+files are rejected; header-only zero-row CSVs are valid and carry warnings.
+Infinity spellings and non-finite numeric values are rejected, never silently
+imputed. Python's CSV reader also applies its field-size limit (typically 128 KiB).
+
+Defaults: 10 MB input, 20 MB output, 100,000 rows, 200 columns, 2 million cells,
+100 MB estimated DataFrame memory, and at most 50 operations. `DatasetLimits`
+configures these with bounded maxima. The CSV output stream enforces its byte
+limit while writing. These application limits do not replace isolated-process
+CPU/memory/time limits: decoding and parsing allocate memory before a DataFrame
+estimate is available. No secrets or arbitrary source bytes appear in validation
+errors. Invalid source files raise `DatasetError`; invalid request structures
+raise Pydantic `ValidationError` before loading.
+
+Supported operations and exact semantics:
+
+| Operation | Behavior |
+| --- | --- |
+| `drop_missing` | Remove rows missing any selected column. |
+| `fill_mean`, `fill_median` | Compute from observed numeric values and fill only missing cells. |
+| `drop_duplicates` | Keep the first row for all columns, or the explicitly selected subset. |
+| `standardize` | `(x - mean) / std`; `ddof=0` by default, optionally `1`. |
+| `minmax` | `(x - min) / (max - min)` into `[0, 1]`. |
+| `select_columns` | Retain exactly the selected columns in the supplied order. |
+| `drop_columns` | Remove selected columns; removing all columns is rejected. |
+
+Constant columns cannot be standardized/scaled; insufficient observations or
+all-missing numeric columns cannot be imputed/normalized. These are explicit
+failures, not invented zeros. Normalization excludes missing observations from
+statistics and retains missing cells, with a warning. No silent imputation or
+type coercion from text is performed. Selected numeric columns are processed as
+float64 and dtype changes are logged. No-operation processing preserves original
+bytes; transformed output uses UTF-8, LF line endings, no index, and empty fields
+for missing values. CSV output does not preserve lexical formatting or dtype
+annotations; the report records dtypes, and the consumer may need explicit
+dtype configuration on reload. Formula-looking text is retained as research
+data: do not open untrusted CSVs in a spreadsheet without appropriate protection.
+
+## Transformation reports, provenance, and dataset handoff
+
+Every attempted operation generates an ordered `TransformationLogEntry` with
+operation, actual target columns/options, before/after rows and column names,
+before/after dtypes, actual rows removed, changed-cell counts for numerical
+operations, actual computed values (fill counts/values, mean/std/ddof or
+min/max/range), status, and warnings/errors. Changed-cell counts exclude
+missing-to-missing cells and values equal before/after. Failed operations are
+atomic: no partial changes from that step are committed, the failed entry is
+included, later steps are not attempted, and no processed artifact is exported.
+The provenance's final shape then describes the last successful in-memory step;
+`final_summary`, artifact, and processed hash remain null. Export failures are
+also returned as structured `status="error"` results.
+
+Successful results include original/final summaries and an artifact. Provenance
+records the dataset ID, original basename, hashes of the actual source/output
+bytes, original/final shapes, UTC processing time, Pandas/NumPy versions, and a
+SHA-256 of canonical JSON transformation logs. No AI-derived statistics or
+fabricated source descriptions are used. Person 2 can turn those measured logs
+into a Methods paragraph; preserve order, actual values, and failure/warning
+status. These logs describe fitted preprocessing on this dataset, not a reusable
+train/test transformer: fit preprocessing on training data only to avoid leakage.
+Person 1 can display summaries and chronological logs without receiving raw rows.
+
+`DatasetArtifactStore` is separate from the PNG-only store and uses compatible
+opaque `<random-run>-<random-file>` IDs, per-run directories and metadata
+(`artifact_type="dataset"`, `mime_type="text/csv"`, filename, byte count,
+dataset ID, source/output/history hashes, processing ID, artifact reference).
+Default output root is `.runtime/dataset-artifacts`; applications should pass
+their own dedicated controlled output mount. No new environment setting is
+required. Output IDs never contain dataset IDs or user-provided filenames.
+
+```python
+import hashlib
+
+if result.status == "success":
+    artifact = result.artifact
+    csv_bytes = store.retrieve(artifact.artifact_id)
+    assert hashlib.sha256(csv_bytes).hexdigest() == artifact.sha256
+    # Person 4: persist CSV bytes to Vultr and the result/logs/ownership metadata
+    # to the database. Only after both have succeeded:
+    store.cleanup(artifact.artifact_id)
+```
+
+Cleanup is explicit and idempotent; files survive processing and failed upload
+attempts. It removes just the identified file and its empty parent directory,
+never recursively deletes other artifacts. Person 4 owns retention and orphan
+recovery. Input datasets are never modified or removed. Retrieval IDs are
+locators, not permission grants: authorize ownership before retrieving. Relative
+reference validation, containment, regular-file checks and symlink/junction/
+hardlink rejection prevent ordinary path traversal. Controlled roots must not
+be concurrently writable by untrusted processes; path checks are not a sandbox
+or a defense against filesystem replacement races. Use isolated inputs without
+secrets. Only authorized CSV bytes are eligible for processing.
+
+## Consuming processed datasets in experiments
+
+`artifact.to_reference()` returns a `ProcessedDatasetReference` with dataset ID,
+opaque artifact reference, output SHA-256, source SHA-256 and history SHA-256.
+Person 4 must authorize the reference, retrieve the bytes, verify the checksum,
+and materialize only that approved file into a restricted worker's read-only
+input mount (for example `/input/dataset.csv`). Never mount arbitrary host
+directories or give experiments backend storage credentials. The current worker
+does not fetch artifacts or create mounts.
+
+Use the existing `ExperimentRequest.dataset_id` and
+`metadata={"processed_dataset": artifact.to_reference().model_dump(mode="json")}`.
+The existing experiment service preserves these identifiers/hashes under
+`execution_metadata.dataset_id` and `execution_metadata.request_metadata`.
+The backend adapter must validate this metadata against the persisted report;
+caller-supplied metadata is not proof of provenance. Approved experiment code
+can load the mounted path via Pandas, optionally receiving a worker-local path
+through `parameters`. No experiment API or execution/figure code was changed.
+
+`python -m pre_science.demo_data` creates a deterministic study CSV inside a new
+ignored `.runtime/dataset-demo/<run>` directory and performs label filtering,
+duplicate removal, median imputation, standardization, and CSV retrieval. It
+prints the complete real inspection/report and retrieved CSV, retaining artifacts
+for inspection. No actual `.env` or external dataset is read.
+
+## Execution security boundaries
 
 The worker is NOT a security sandbox. It uses ordinary Python `exec`, redirects
 Python stdout/stderr, and runs with its process's permissions. Native/subprocess
