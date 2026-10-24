@@ -2,8 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 if __package__:
     from .config import get_settings
+    from .routes.projects import router as projects_router
 else:  # Support the existing `uvicorn main:app` backend launch.
     from config import get_settings
+    from routes.projects import router as projects_router
 
 # Load server configuration without adding credentials to os.environ.
 # Each service calls settings.require(...) only when that service is enabled.
@@ -17,6 +19,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(projects_router)
 
 @app.get("/")
 def home():
