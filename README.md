@@ -13,12 +13,14 @@ Open the local URL printed by Vite. `npm run build` type-checks and produces `di
 
 ## Workspace
 
+The notebook is the default view. Use **Paper** to edit LaTeX, **Preview** to show or hide the PDF panel, **Ask AI** to open chat, and **Tools** for the research workflows.
+
 - Notebook cells support Python, LaTeX, and rendered Markdown. Click the edit icon or double-click Markdown to edit; Run returns it to rendered mode.
 - Add, edit, delete, and upload text files through Explorer. Files and notebook cells automatically persist in browser localStorage.
 - Export creates a complete project JSON backup. The notebook's ellipsis button exports a Jupyter-compatible `.ipynb` (LaTeX cells are Markdown with `metadata.pre_type`). Individual files can be downloaded from the file editor.
 - Compile displays the PDF returned by your LaTeX service. Run or Run all executes Python cells sequentially through the execution API.
 - Chat includes project context. Review, Experiment, Replicate, Iterate, and Defend provide dedicated prompt/result workspaces.
-- The default PDF-like paper and plotted metrics are **illustrative sample content**, not generated results. Real PDF compilation, Python execution, and AI require the backend services below. Python runs on your team's backend, never through JavaScript evaluation.
+- PDF compilation, Python execution, and AI require the backend services below. The preview stays empty until compilation succeeds. Python runs on your team's backend.
 
 ## Backend contract
 
@@ -28,7 +30,7 @@ Set the API base URL in **Workspace settings** (e.g. `http://localhost:8000`). R
 
 Request: `{ files: [{ path, content }], cells: [{ id, type, source, output? }], entrypoint: "paper/main.tex" }`
 
-Response: `{ pdfUrl: string, logs?: string }`. Return a browser-accessible absolute URL or same-origin URL that permits iframe display. The backend decides how notebook LaTeX cells are assembled with project files; the main entrypoint is supplied explicitly. The mockup is replaced only after a successful compile.
+Response: `{ pdfUrl: string, logs?: string }`. Return a browser-accessible absolute URL or same-origin URL that permits iframe display. The backend decides how notebook LaTeX cells are assembled with project files; the main entrypoint is supplied explicitly. The PDF appears after a successful compile.
 
 ### `POST /api/execute`
 
