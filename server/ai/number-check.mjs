@@ -78,6 +78,6 @@ export function arithmeticScore({ comments, checked }) {
   return Math.max(1, Math.round(1 + 4 * (checked - comments.length) / checked));
 }
 export async function checkNumbers(latex, dependencies) {
-  return structured_call({ prompt: numberCheckPrompt(latex), schema: numberCheckSchema,
+  return structured_call({ prompt: numberCheckPrompt(latex), schema: numberCheckSchema, timeoutMs: 90000,
     validate: result => { if (!Array.isArray(result?.calculations)) throw new Error('Expected a calculations array.'); return auditCalculations(latex, result.calculations); } }, dependencies);
 }

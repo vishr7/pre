@@ -2,6 +2,8 @@ import { structured_call } from './structured-call.mjs';
 import { reviewPrompt, reviewSchema, venues } from './review-prompt.mjs';
 import { checkNumbers, arithmeticScore } from './number-check.mjs';
 const severityOrder = { critical: 0, major: 1, minor: 2 };
+// A full-paper review normally takes 15-30s; a 30s cut-off made slow responses fail and retry until the app gave up.
+export const REVIEW_TIMEOUT_MS = 90000;
 export function findPaper({ files = [], cells = [] } = {}) {
   const tex = files.filter(f => typeof f?.path === 'string' && f.path.endsWith('.tex') && typeof f.content === 'string' && f.content.trim());
   const main = tex.find(f => f.path === 'paper/main.tex') || tex.find(f => f.content.includes('\\begin{document}'));
@@ -28,7 +30,7 @@ export async function reviewPaper({ files, cells, latex: suppliedLatex, venue = 
   if (latex.length > 200000) throw new Error('The paper exceeds the 200,000 character review limit.');
   // The arithmetic audit is best-effort: if it fails, the review is still returned.
   const [review, audit] = await Promise.all([
-    structured_call({ prompt: reviewPrompt(latex, venues[venue] ? venue : 'generic', paperSections(latex)), schema: reviewSchema, validate: review => validateReview(latex, review) }, dependencies),
+    structured_call({ prompt: reviewPrompt(latex, venues[venue] ? venue : 'generic', paperSections(latex)), schema: reviewSchema, timeoutMs: REVIEW_TIMEOUT_MS, validate: review => validateReview(latex, review) }, dependencies),
     checkNumbers(latex, dependencies).catch(() => null),
   ]);
   return mergeNumberChecks(review, audit);

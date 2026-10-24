@@ -38,3 +38,10 @@ test('Review uses assembled source including notebook text rather than the start
  }});
  assert.equal(result.comments.length,1);
 });
+test('Review and number check allow 90 seconds per Gemini attempt',async()=>{
+ const signals=[];
+ await reviewPaper({latex},{env:{GEMINI_API_KEY:'k',GEMINI_MODEL:'m'},fetchImpl:async(_url,options)=>{signals.push(options.signal);
+  return gemini(isNumberCheck(options)?{calculations:[]}:review([comment('c1','Each model was trained once.')]));}});
+ assert.equal(signals.length,2);
+ const {REVIEW_TIMEOUT_MS}=await import('./ai/review.mjs');assert.equal(REVIEW_TIMEOUT_MS,90000);
+});
