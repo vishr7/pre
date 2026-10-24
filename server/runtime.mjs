@@ -1,3 +1,4 @@
+import {SweepJobs, planSweep} from './iterate.mjs';
 import { formatPaper } from '../src/paperFormat.ts';
 import { planReplication, fetchArxiv } from './ai/paper-replication.mjs';
 import { replicate } from './replicate.mjs';
@@ -175,6 +176,7 @@ export class Runtime {
 }
 export function runtimePlugin() {
   const runtime = new Runtime();
+  const sweeps = new SweepJobs(runtime);
   function attach(server) {
     const terminal = terminalService(server, runtime);
     server.httpServer?.once('close', () => void runtime.close());
@@ -200,6 +202,10 @@ export function runtimePlugin() {
         if (req.url === '/api/replicate/paper') return send(200, await fetchArxiv(data.url));
         if (req.url === '/api/replicate/plan') return send(200, await planReplication(data));
         if (req.url === '/api/tools/replicate') return send(200, await replicate(data, {python:runtime.python,cwd:projectRoot}));
+        if (req.url === '/api/iterate/plan') return send(200, await planSweep(data));
+        if (req.url === '/api/iterate/start') return send(200, sweeps.start(data));
+        if (req.url === '/api/iterate/status') return send(200, sweeps.get(data.id));
+        if (req.url === '/api/iterate/cancel') return send(200, await sweeps.cancel(data.id));
         if (req.url === '/api/chat') return send(200, await chatReply(data));
         if (req.url === '/api/review') return send(200, await reviewPaper(data));
         if (req.url === '/api/review/fix') return send(200, await proposeReviewFix(data));

@@ -22,9 +22,9 @@ const reviewTypes: Record<string,string> = {
  journal: 'For journal articles. Focuses on a complete account of the work, statistical rigor, related research, and well-supported conclusions.',
 };
 const scoreHelp: Record<string,string> = {methodology:'How sound and well explained your methods are.',novelty:'How clearly the paper establishes its contribution.',clarity:'How easy the paper is to follow.',reproducibility:'Whether others have enough detail to repeat the work.',arithmetic:'Whether the paper’s calculations and reported numbers add up. Checked by code, not estimated by AI.'};
-export default function ReviewPanel({ base, files, cells, review, onReview, onShowQuote, onError, onApplyEdits }: {
+export default function ReviewPanel({ base, files, cells, review, onReview, onShowQuote, onError, onApplyEdits, onIterate }: {
   base: string; files: ProjectFile[]; cells: Cell[]; review: Review | null; onReview: (review: Review) => void;
-  onShowQuote: (quote: string) => void; onError: (message: string) => void; onApplyEdits: (proposal: EditProposal) => Promise<boolean>;
+  onIterate: (prompt: string) => void; onShowQuote: (quote: string) => void; onError: (message: string) => void; onApplyEdits: (proposal: EditProposal) => Promise<boolean>;
 }) {
   const [venue, setVenue] = useState('generic');
   const [working, setWorking] = useState(false);
@@ -67,7 +67,7 @@ export default function ReviewPanel({ base, files, cells, review, onReview, onSh
           <button className="review-show" onClick={() => onShowQuote(c.quote)}><FileText size={12}/> Show in paper</button>
           <button className="review-show" disabled={!!fixes[c.id]} onClick={() => fix(c)}>{fixes[c.id]?.phase === 'working' ? <LoaderCircle size={12} className="spin"/> : <Sparkles size={12}/>} Fix this</button></div>
         <code className="review-quote">{c.quote}</code>
-        <p>{c.comment}</p><p className="review-fix"><b>Fix:</b> {c.suggestion}</p>
+        <button className="outline-btn" onClick={()=>onIterate(`Address this reviewer concern with measured experiments.\nConcern: ${c.comment}\nSuggested experiment: ${c.suggestion}\nPaper quote: ${c.quote}`)}>Test in Iterate</button><p>{c.comment}</p><p className="review-fix"><b>Fix:</b> {c.suggestion}</p>
         {fixes[c.id] && fixes[c.id].phase !== 'working' && <div className="chat-edit-proposal"><strong>Suggested fix</strong><p>{fixes[c.id].message}</p>
           {fixes[c.id].proposal?.edits.map((edit, j) => <details key={j} open><summary>{edit.target === 'cell' ? 'Notebook cell' : edit.id} · {edit.reason}</summary><pre className="chat-edit-old">− {edit.old_text}</pre><pre className="chat-edit-new">+ {edit.new_text}</pre></details>)}
           <div>{fixes[c.id].proposal && <button className="primary-btn" disabled={fixes[c.id].phase !== 'ready'} onClick={() => apply(c.id, fixes[c.id].proposal!)}>{fixes[c.id].phase === 'applied' ? 'Applied' : 'Apply edits'}</button>}
