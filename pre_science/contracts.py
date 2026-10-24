@@ -15,5 +15,7 @@ class ExperimentExecutor(Protocol):
 
         On deadline expiry return status='timeout' and terminate the container.
         Raise ExecutionFailure for execution infrastructure failures.
+        Scientific jobs must use fresh process/container and filesystem state;
+        never route optimization trials to persistent notebook kernels.
         """
         ...
