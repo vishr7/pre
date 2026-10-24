@@ -54,21 +54,30 @@ function sectionAt(latex, index) {
   return before.length ? before[before.length - 1][1] : 'General';
 }
 // Turns verified mismatches into review comments; unanchored or unparseable items are dropped.
-export function checkCalculations(latex, calculations = []) {
+// `checked` counts every calculation that was verified, right or wrong, for the arithmetic score.
+export function auditCalculations(latex, calculations = []) {
   const comments = [];
+  let checked = 0;
   for (const c of calculations) {
     if (typeof c?.quote !== 'string' || c.quote.trim().length < 4 || !latex.includes(c.quote)) continue;
     let computed;
     try { computed = evaluate(c.expression); } catch { continue; }
+    checked++;
     if (matchesClaim(computed, c.claimed_value, c.comparison)) continue;
     const claim = c.comparison === 'at_least' ? `at least ${c.claimed_value}` : c.comparison === 'at_most' ? `at most ${c.claimed_value}` : c.claimed_value;
     comments.push({ id: `m${comments.length + 1}`, section: sectionAt(latex, latex.indexOf(c.quote)), quote: c.quote, category: 'inconsistent_metric', severity: 'major',
       comment: `Calculation check (${c.description}): the paper states ${claim}, but ${c.expression} = ${format(computed)}.`,
       suggestion: `Correct the stated value to ${format(computed)}, or fix the numbers it is derived from.` });
   }
-  return comments;
+  return { comments, checked };
+}
+export const checkCalculations = (latex, calculations) => auditCalculations(latex, calculations).comments;
+// 5 when every verified calculation is correct, down to 1; null when the paper has nothing to check.
+export function arithmeticScore({ comments, checked }) {
+  if (!checked) return null;
+  return Math.max(1, Math.round(1 + 4 * (checked - comments.length) / checked));
 }
 export async function checkNumbers(latex, dependencies) {
   return structured_call({ prompt: numberCheckPrompt(latex), schema: numberCheckSchema,
-    validate: result => { if (!Array.isArray(result?.calculations)) throw new Error('Expected a calculations array.'); return checkCalculations(latex, result.calculations); } }, dependencies);
+    validate: result => { if (!Array.isArray(result?.calculations)) throw new Error('Expected a calculations array.'); return auditCalculations(latex, result.calculations); } }, dependencies);
 }

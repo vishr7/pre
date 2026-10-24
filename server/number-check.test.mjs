@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { evaluate, matchesClaim, checkCalculations, checkNumbers } from './ai/number-check.mjs';
+import { evaluate, matchesClaim, checkCalculations, checkNumbers, arithmeticScore } from './ai/number-check.mjs';
 import { mergeNumberChecks } from './ai/review.mjs';
 const paper = readFileSync(new URL('../samples/litetune_paper.tex', import.meta.url), 'utf8');
 const calc = (quote, expression, claimed_value, comparison = 'equals') => ({ quote, description: 'test', expression, claimed_value, comparison });
@@ -49,4 +49,15 @@ test('Number check runs through Gemini and merges into the review',async()=>{
  const merged=mergeNumberChecks(review,numbers);
  assert.deepEqual(merged.comments.map(c=>c.id),['c2','m1','m2','m3','m4','m5','m6']);
  assert.deepEqual(merged.action_items.at(-1).related_comment_ids,['m1','m2','m3','m4','m5','m6']);
+ assert.equal(merged.scores.arithmetic,2); // 2 of 8 calculations correct
+ assert.equal(merged.scores.methodology,2);
+});
+test('Arithmetic score reflects the share of correct calculations',()=>{
+ assert.equal(arithmeticScore({checked:8,comments:[]}),5);
+ assert.equal(arithmeticScore({checked:8,comments:Array(8)}),1);
+ assert.equal(arithmeticScore({checked:4,comments:Array(2)}),3);
+ assert.equal(arithmeticScore({checked:0,comments:[]}),null);
+ const review={summary:'s',scores:{methodology:3,novelty:3,clarity:3,reproducibility:3},comments:[],action_items:[]};
+ assert.equal(mergeNumberChecks(review,null).scores.arithmetic,null); // audit failed
+ assert.equal(mergeNumberChecks(review,{checked:3,comments:[]}).scores.arithmetic,5);
 });

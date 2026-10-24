@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { FileText, LoaderCircle, Sparkles, SquarePen } from 'lucide-react';
 import { request, type Cell, type ProjectFile } from './api';
 export type ReviewComment = { id: string; section: string; quote: string; category: string; severity: 'minor' | 'major' | 'critical'; comment: string; suggestion: string };
-export type Review = { summary: string; scores: Record<'methodology' | 'novelty' | 'clarity' | 'reproducibility', number>;
+export type Review = { summary: string; scores: Record<'methodology' | 'novelty' | 'clarity' | 'reproducibility', number> & { arithmetic?: number | null };
   comments: ReviewComment[]; action_items: { id: string; title: string; description: string; related_comment_ids: string[] }[] };
 const reviewTypes: Record<string,string> = {
  generic: 'Start here for any paper. Checks whether your claims are supported, your methods are clear, and your results are explained.',
@@ -12,7 +12,7 @@ const reviewTypes: Record<string,string> = {
  acl: 'For language and NLP papers. Focuses on datasets, comparisons, statistical evidence, limitations, and ethical considerations.',
  journal: 'For journal articles. Focuses on a complete account of the work, statistical rigor, related research, and well-supported conclusions.',
 };
-const scoreHelp: Record<string,string> = {methodology:'How sound and well explained your methods are.',novelty:'How clearly the paper establishes its contribution.',clarity:'How easy the paper is to follow.',reproducibility:'Whether others have enough detail to repeat the work.'};
+const scoreHelp: Record<string,string> = {methodology:'How sound and well explained your methods are.',novelty:'How clearly the paper establishes its contribution.',clarity:'How easy the paper is to follow.',reproducibility:'Whether others have enough detail to repeat the work.',arithmetic:'Whether the paper’s calculations and reported numbers add up. Checked by code, not estimated by AI.'};
 export default function ReviewPanel({ base, files, cells, review, onReview, onShowQuote, onError }: {
   base: string; files: ProjectFile[]; cells: Cell[]; review: Review | null; onReview: (review: Review) => void;
   onShowQuote: (quote: string) => void; onError: (message: string) => void;
@@ -39,7 +39,7 @@ export default function ReviewPanel({ base, files, cells, review, onReview, onSh
     {!review && <div className="review-explainer"><h3>What you’ll get</h3><div className="review-explainer-grid"><div><strong>Overall assessment</strong><p>A summary and scores for methods, contribution, clarity, and reproducibility.</p></div><div><strong>Comments on specific passages</strong><p>Each comment quotes your text, explains the issue, and suggests an improvement.</p></div><div><strong>Next steps</strong><p>Action items to help you decide what to revise. Your paper stays unchanged.</p></div></div></div>}
     {review && <>
       <div className="review-section"><p className="review-summary">{review.summary}</p>
-        <p className="review-score-guide">AI assessment · 1 = needs substantial work, 5 = strong. These scores are guidance, not an acceptance prediction.</p><div className="review-scores">{Object.entries(review.scores).map(([name, value]) => <div key={name}><b>{value}<small>/5</small></b><span>{name}</span><p className="review-score-help">{scoreHelp[name]}</p></div>)}</div></div>
+        <p className="review-score-guide">AI assessment · 1 = needs substantial work, 5 = strong. These scores are guidance, not an acceptance prediction.</p><div className="review-scores">{Object.entries(review.scores).map(([name, value]) => <div key={name}><b>{value ?? '–'}{value != null && <small>/5</small>}</b><span>{name}</span><p className="review-score-help">{scoreHelp[name]}</p></div>)}</div></div>
       <p className="review-reading-guide">Start with critical issues, then major improvements and minor refinements. Select <b>Show in paper</b> to jump to the quoted passage.</p><div className="review-heading">Comments <span>{review.comments.length}</span></div>
       {review.comments.map(c => <article key={c.id} className={`review-comment ${c.severity}`}>
         <div className="review-tags"><strong>{c.id}</strong><span className={`review-badge ${c.severity}`}>{c.severity}</span><span>{c.category.replace('_', ' ')}</span><span>{c.section}</span>
