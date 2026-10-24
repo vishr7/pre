@@ -1,5 +1,8 @@
 import httpx
 from fastapi import APIRouter, HTTPException
+import secrets
+import httpx
+from fastapi import APIRouter, HTTPException, Header
 
 try:
     from ..config import get_settings, ConfigurationError
@@ -27,7 +30,25 @@ def defend_health():
     }
 
 @router.get("/signed-url")
-async def get_signed_url():
+async def get_signed_url(
+    demo_key: str | None = Header(default=None, alias="X-PRE-Demo-Key")
+):
+    try:
+        settings = get_settings()
+        expected_key = settings.require(
+            "PRE_DEMO_API_KEY"
+        ).get_secret_value()
+    except ConfigurationError:
+        raise HTTPException(
+            status_code=503,
+            detail="Demo access is not configured"
+        )
+
+    if not demo_key or not secrets.compare_digest(demo_key, expected_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing demo key"
+        )
     try:
         settings = get_settings()
         agent_id = settings.require("ELEVENLABS_AGENT_ID").get_secret_value()
