@@ -1,7 +1,7 @@
 # Scientific execution foundation
 
 This package is independent of the Node notebook runtime. It installs no routes,
-does not start FastAPI, and does not implement Docker, storage, reproduction, or
+does not start FastAPI, and does not implement Docker, cloud storage, reproduction, or
 optimization. Python 3.10+ is required; use a version supported by the scientific
 dependencies.
 
@@ -15,6 +15,7 @@ py -3 -m venv .venv
 $env:MPLCONFIGDIR = Join-Path (Get-Location) '.venv\matplotlib-config'
 .venv/Scripts/python -m pytest tests/science -q
 .venv/Scripts/python -m pre_science.worker --demo
+.venv/Scripts/python -m pre_science.demo_plots
 ```
 
 The demo executes a fixed developer-authored NumPy example, prints real stdout,
@@ -124,13 +125,96 @@ payload = {"result": "Scientific execution result:\n\n```json\n"
 For production rendering, escape untrusted strings/backticks or use a dedicated
 safe formatter. Structured frontend presentation can be added by Person 1 later.
 
-## Figures, artifacts, and security boundaries
+## Figures and artifact handoff (implemented)
 
-`artifacts` is an empty list today. `Artifact` reserves name, media type, and
-worker-relative path metadata for the next prompt. This foundation does not
-capture figures or upload files. Matplotlib uses Agg. Person 4 must validate
-future artifact paths and handle object storage; never expose worker paths as
-public URLs directly.
+Experiments import `matplotlib.pyplot`, create figures normally, and may call
+`plt.show()`. The worker forces the non-interactive Agg backend before execution;
+show does not remove figures. Active figures are exported after execution, even
+on a code error. Figures explicitly closed by experiment code before capture
+are not available. The worker closes all figures before and after each job.
+Agg may emit a non-interactive-backend warning for `show()`; this does not
+prevent capture and is preserved as diagnostic output under normal execution.
+Direct calls are sequential only: Matplotlib and Python output capture use
+global state. Production must use a fresh process/container for each job.
+
+Each PNG receives a random run directory and random filename. Experiment IDs
+are metadata only and never form filesystem paths. Repeated runs with the same
+experiment ID use different directories. Responses contain `FigureArtifact`
+objects with artifact/experiment IDs, type `figure`, filename, MIME type
+`image/png`, byte count, width/height in pixels, SHA-256, and an opaque
+`artifact_reference` equal to the artifact ID. No image bytes or public URLs are
+embedded. The old `Artifact` model remains accepted for executor compatibility;
+the PNG handoff helpers accept only the new opaque figure IDs.
+
+Defaults: 8 figures, 100 DPI, 4096 pixels per dimension, 16 million pixels per
+figure, and 10 MB per PNG. Excess figures are skipped; dimension limits are
+checked before rendering and again against the exported PNG header. A bounded
+output buffer stops oversized PNG writes. Matplotlib rendering can still use
+significant memory before export; external memory/CPU/time limits remain required.
+The worker returns export/limit problems in
+`execution_metadata.artifact_errors`. Numerical execution status, metrics, and
+code errors remain intact; `status="success"` with artifact errors means that
+computation succeeded but some figures were unavailable. Always inspect that list.
+Other figures are captured when an individual export fails.
+
+The worker defaults to `.runtime/science-artifacts` relative to its working
+directory (already ignored by Git). Set `PRE_SCIENCE_ARTIFACT_ROOT` to a dedicated
+controlled output mount for deployment. Set `MPLCONFIGDIR` to a writable job-local
+configuration directory. Limits can be supplied by the trusted executor via
+`run_worker(request, artifact_store=store, figure_limits=FigureLimits(...))`.
+CLI workers use defaults; a container wrapper can call the same Python interface
+to supply custom limits. Do not source output paths from experiment metadata.
+
+Person 4 can retrieve a PNG from the same root or a shared mounted output root:
+
+```python
+import hashlib
+from pre_science.plots import ArtifactStore
+
+store = ArtifactStore(controlled_output_mount)
+for artifact in result.artifacts:
+    png = store.retrieve(artifact.artifact_id)
+    if len(png) != artifact.size_bytes or hashlib.sha256(png).hexdigest() != artifact.sha256:
+        raise ValueError("Artifact handoff integrity check failed")
+    # Person 4: upload png to Vultr using image/png, then persist ownership,
+    # experiment/artifact IDs, checksum and permanent object key in the database.
+    # Only after both upload and metadata persistence succeed:
+    store.cleanup(artifact.artifact_id)
+```
+
+Retrieval rejects arbitrary paths, malformed identifiers, symlinks, nonregular
+files, oversized files, and non-PNG headers. Cleanup removes the identified PNG
+and only an empty parent run directory. No automatic cleanup/expiry occurs:
+failed uploads can be retried. Do not delete the output volume/container before
+handoff, and do not call cleanup merely because execution finished. Person 4
+owns retention/quota policy and orphan recovery after worker crashes.
+
+IDs are locators, not authorization tokens. Person 4 must map each ID to its
+experiment/owner before retrieval; no public serving endpoint is implemented.
+The root must be controlled, not concurrently changed by untrusted processes.
+Path checks do not defend against a process with arbitrary filesystem access
+racing directory replacement. On Windows, do not allow untrusted junctions or
+reparse points in the mount. Use container/filesystem isolation and validate
+worker-produced bytes/metadata at the backend boundary. Retrieval's PNG header
+check is not full validation of hostile images.
+
+## Future display, persistence, and manuscript integration
+
+Vultr uploads, database storage and authorized/signed download URLs belong to
+Person 4 and are not implemented here. Person 1 can display those persisted URLs
+in graph panels. An opaque artifact reference is not a browser URL. For later
+manuscript insertion, retain an artifact-to-project asset mapping, materialize
+the PNG under an approved project path such as `figures/<artifact-id>.png`, and
+let Person 1 insert `\\includegraphics{figures/<artifact-id>.png}`. The compiler
+must receive the actual PNG separately; the current text-file API does not
+transfer binary artifacts. No frontend or LaTeX integration is added here.
+
+The trusted `pre_science.demo_plots` module runs a sine-wave experiment through
+the existing service/worker, retrieves the real PNG by ID, verifies its checksum,
+and prints the structured result with retrieval evidence. It retains the PNG
+for inspection. Use `store.cleanup(id)` explicitly when finished.
+
+## Security boundaries
 
 The worker is NOT a security sandbox. It uses ordinary Python `exec`, redirects
 Python stdout/stderr, and runs with its process's permissions. Native/subprocess
