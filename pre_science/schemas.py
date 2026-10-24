@@ -226,3 +226,141 @@ class DatasetProcessingResult(Model):
     provenance: DatasetProvenance
     artifact: DatasetArtifact | None = None
     error: ExecutionError | None = None
+
+
+NonblankText = Annotated[str, Field(min_length=1, pattern=r'\S')]
+
+
+class PaperMetadata(Model):
+    title: NonblankText
+    authors: list[NonblankText] | None = None
+    identifier: NonblankText | None = None
+    publication_year: int | None = Field(default=None, ge=1450, le=3000)
+    source_kind: Literal['publication', 'local_baseline', 'unverified'] = 'unverified'
+
+
+class MetricTolerance(Model):
+    absolute_tolerance: FiniteNumber = Field(ge=0)
+    relative_tolerance: FiniteNumber = Field(ge=0)
+
+
+class PublishedMetric(MetricTolerance):
+    name: NonblankText
+    value: FiniteNumber | None = None
+
+
+class ReplicationDataset(Model):
+    dataset_id: NonblankText
+    description: NonblankText | None = None
+    original_artifact_reference: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}-[0-9a-f]{32}$')
+    original_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    processed: ProcessedDatasetReference | None = None
+    transformations: list[TransformationLogEntry] | None = None
+
+    @model_validator(mode='after')
+    def consistent_dataset(self):
+        if self.processed is not None:
+            if self.dataset_id != self.processed.dataset_id:
+                raise ValueError('Processed reference must belong to the specified dataset')
+            if self.original_sha256 is not None and self.original_sha256 != self.processed.source_sha256:
+                raise ValueError('Original and processed source hashes must agree')
+        return self
+
+
+class ReproductionLimitations(Model):
+    missing_methodological_details: list[NonblankText] = Field(default_factory=list)
+    unavailable_datasets: list[NonblankText] = Field(default_factory=list)
+    unavailable_code_or_weights: list[NonblankText] = Field(default_factory=list)
+    substituted_parameters: list[NonblankText] = Field(default_factory=list)
+    assumptions: list[NonblankText] = Field(default_factory=list)
+    original_conditions_known: bool | None = None
+    conditions_match_publication: bool | None = None
+
+
+class ResearcherApproval(Model):
+    approved: bool = False
+    approved_by: NonblankText | None = None
+    specification_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+
+class ReplicationSpecification(Model):
+    paper: PaperMetadata
+    experiment_id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    experiment_title: NonblankText | None = None
+    algorithm: NonblankText | None = None
+    dataset_required: bool | None = None
+    dataset: ReplicationDataset | None = None
+    required_asset_ids: list[NonblankText] = Field(default_factory=list)
+    required_dependencies: list[NonblankText] | None = None
+    published_parameters: dict[str, JsonValue] | None = None
+    parameters: dict[str, JsonValue] | None = None
+    published_random_seed: int | None = Field(default=None, ge=0, le=2**32 - 1)
+    random_seed: int | None = Field(default=None, ge=0, le=2**32 - 1)
+    evaluation_metrics: list[NonblankText] | None = None
+    published_metrics: list[PublishedMetric] = Field(default_factory=list, max_length=100)
+    code: str | None = Field(default=None, min_length=1, max_length=200_000, pattern=r'\S')
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    limitations: ReproductionLimitations = Field(default_factory=ReproductionLimitations)
+    approval: ResearcherApproval = Field(default_factory=ResearcherApproval)
+
+    @field_validator('parameters', 'published_parameters')
+    @classmethod
+    def finite_parameters(cls, value):
+        json.dumps(value, allow_nan=False)
+        return value
+
+    @model_validator(mode='after')
+    def consistent_specification(self):
+        names = [metric.name for metric in self.published_metrics]
+        if len(names) != len(set(names)):
+            raise ValueError('Published metric names must be unique')
+        if self.evaluation_metrics is not None and len(set(self.evaluation_metrics)) != len(self.evaluation_metrics):
+            raise ValueError('Evaluation metric names must be unique')
+        if self.dataset_required is False and self.dataset is not None:
+            raise ValueError('A dataset reference requires dataset_required=True')
+        return self
+
+
+class MetricComparison(MetricTolerance):
+    name: str
+    published_value: FiniteNumber | None = None
+    reproduced_value: FiniteNumber | None = None
+    absolute_difference: FiniteNumber | None = None
+    relative_difference: FiniteNumber | None = None
+    percentage_difference: FiniteNumber | None = None
+    agrees: bool | None = None
+    status: Literal['match', 'different', 'unavailable', 'not_executed', 'execution_failed']
+    reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ReplicationReport(Model):
+    specification: ReplicationSpecification
+    specification_sha256: str
+    paper: PaperMetadata
+    experiment_id: str
+    status: Literal['approval_required', 'missing_inputs', 'completed', 'execution_failed']
+    execution_status: Literal['not_executed', 'success', 'error', 'timeout']
+    execution: ExperimentResult | None = None
+    published_metrics: list[PublishedMetric]
+    reproduced_metrics: dict[str, FiniteNumber]
+    comparisons: list[MetricComparison]
+    additional_metrics: dict[str, FiniteNumber]
+    numerical_assessment: Literal['all_comparable_agree', 'some_metrics_differ', 'no_comparable_metrics',
+                                  'execution_failed', 'not_executed']
+    all_published_metrics_agree: bool | None
+    methodology_completeness: Literal['fully_specified', 'partially_specified',
+                                     'approximate_reconstruction', 'insufficient_information']
+    missing_information: list[str]
+    missing_inputs: list[str]
+    assumptions: list[str]
+    dataset_provenance: ReplicationDataset | None
+    code_sha256: str | None
+    parameters: dict[str, JsonValue] | None
+    random_seed: int | None
+    dependency_versions: dict[str, JsonValue]
+    artifacts: list[FigureArtifact | Artifact]
+    execution_duration: FiniteNumber | None
+    warnings: list[str]
+    summary: str
+    report_timestamp: str
