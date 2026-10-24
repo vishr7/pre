@@ -1,0 +1,43 @@
+import { useEffect, useRef, useState } from 'react';
+import { Code2, Copy, FileText, LoaderCircle, Play, Plus, Upload } from 'lucide-react';
+import Editor from '@monaco-editor/react';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { request, type ProjectFile, type ExecutionResult } from './api';
+GlobalWorkerOptions.workerSrc=workerUrl;
+type Plan={title:string;summary:string;experiment:string;methodology:string;steps:string[];requirements:string[];missing:string[];limitations:string[];code:string;expected_results:string};
+type Saved={plan:Plan;path:string;source:string;paperText?:string};
+const manifest='replication/latest-plan.json';
+function restore(files:ProjectFile[]):Saved|null{try{const value=JSON.parse(files.find(f=>f.path===manifest)?.content||'null');return value?.plan&&typeof value.path==='string'&&typeof value.plan.code==='string'?value:null;}catch{return null;}}
+async function extractPdf(data:Uint8Array){
+ const task=getDocument({data});
+ try{const pdf=await task.promise;if(pdf.numPages>150)throw new Error('Use a paper with at most 150 pages.');let text='';
+ for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);const content=await page.getTextContent();text+=`\n[Page ${i}]\n`+content.items.map(item=>'str'in item?item.str+('hasEOL'in item&&item.hasEOL?'\n':' '):'').join('');if(text.length>180000)throw new Error('This paper is too long. Upload the relevant pages as a shorter PDF.');}
+ if(text.replace(/\[Page \d+\]/g,'').trim().length<100)throw new Error('This PDF has little readable text. Upload a searchable PDF rather than a scan.');return text;
+ }finally{await task.destroy();}
+}
+export default function ReplicatePanel({base,files,onSaveFiles,onInsert,onAnalyze}:{base:string;files:ProjectFile[];onSaveFiles:(files:ProjectFile[])=>void;onInsert:(source:string)=>void;onAnalyze:()=>void}){
+ const [saved,setSaved]=useState<Saved|null>(()=>restore(files));const [link,setLink]=useState('');const [pdf,setPdf]=useState<File|null>(null);const [focus,setFocus]=useState('');const [busy,setBusy]=useState('');const [error,setError]=useState('');const [syntax,setSyntax]=useState('');const [output,setOutput]=useState<ExecutionResult|null>(null);
+ const upload=useRef<HTMLInputElement>(null);const lock=useRef(false);const session=useRef(`replicate-${crypto.randomUUID()}`);const alive=useRef(true);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;void request(base,'/api/runtime/release',{sessionId:session.current}).catch(()=>{});};},[base]);
+ const code=saved?(files.find(f=>f.path===saved.path)?.content??saved.plan.code):'';
+ function save(next:Saved){setSaved(next);onSaveFiles([{path:next.path,content:next.plan.code},{path:manifest,content:JSON.stringify(next,null,2)}]);}
+ async function generate(){if(lock.current)return;lock.current=true;setBusy('Reading paper…');setError('');setOutput(null);setSyntax('');
+ try{let bytes:Uint8Array;let source:string;
+ if(pdf){if(pdf.size>15000000)throw new Error('Use a PDF under 15 MB.');bytes=new Uint8Array(await pdf.arrayBuffer());source=pdf.name;}
+ else{const fetched=await request<{data:string;source:string}>(base,'/api/replicate/paper',{url:link.trim()});bytes=Uint8Array.from(atob(fetched.data),c=>c.charCodeAt(0));source=fetched.source;}
+ const text=await extractPdf(bytes);if(!alive.current)return;setBusy('Understanding the experiment and writing Python…');
+ const plan=await request<Plan>(base,'/api/replicate/plan',{text,source,focus});if(!alive.current)return;
+ const path=`replication/experiment-${crypto.randomUUID().slice(0,8)}.py`;save({plan,path,source,paperText:text});setBusy('Checking Python syntax…');
+ const check=await request<{valid:boolean;error?:string}>(base,'/api/tools/replicate',{action:'syntax',code:plan.code});setSyntax(check.valid?'Syntax checked · not yet executed':check.error||'Syntax check failed');
+ }catch(e){if(alive.current)setError((e as Error).message);}finally{lock.current=false;if(alive.current)setBusy('');}}
+ async function run(){if(!saved||lock.current)return;lock.current=true;setBusy('Running Python locally…');setError('');setOutput(null);
+ try{await request(base,'/api/runtime/reset',{sessionId:session.current});const result=await request<ExecutionResult>(base,'/api/execute',{sessionId:session.current,language:'python',code,files:files.filter(f=>f.path!==manifest)});if(!alive.current)return;setOutput(result);onSaveFiles([{path:saved.path.replace(/\.py$/,'.results.json'),content:JSON.stringify({source:saved.source,code,executedAt:new Date().toISOString(),...result},null,2)}]);}
+ catch(e){if(alive.current)setError((e as Error).message);}finally{lock.current=false;if(alive.current)setBusy('');}}
+ return <div className="replicate-studio"><div className="tool-eyebrow"><Copy size={12}/> PRE REPLICATE</div><h2>From paper to experiment</h2><p className="replicate-lead">Bring a paper. Understand its method, build a Python experiment, and take it into your notebook.</p>
+ <div className="replicate-source"><div className="replicate-source-row"><input aria-label="arXiv link" placeholder="Paste an arXiv link…" value={link} disabled={!!busy} onChange={e=>{setLink(e.target.value);setPdf(null);}}/><span>or</span><button className="outline-btn" disabled={!!busy} onClick={()=>upload.current?.click()}><Upload size={14}/>{pdf?pdf.name:'Upload PDF'}</button><input ref={upload} type="file" accept="application/pdf,.pdf" hidden onChange={e=>{const file=e.target.files?.[0];if(file){setPdf(file);setLink('');}e.target.value='';}}/></div><textarea aria-label="Experiment focus" placeholder="Which experiment should we recreate? (Optional)" value={focus} disabled={!!busy} onChange={e=>setFocus(e.target.value)}/><div className="replicate-source-footer"><span>Creates a plan and a Python file. You choose when to run it.</span><button className="primary-btn" disabled={!!busy||(!pdf&&!link.trim())} onClick={()=>void generate()}>{busy?<LoaderCircle size={14} className="spin"/>:<Code2 size={14}/>}Build experiment</button></div></div>
+ {busy&&<p role="status" className="replicate-progress">{busy}</p>}{error&&<p role="alert" className="repair-error">{error}</p>}
+ {saved?<div className="replicate-split"><section className="replicate-plan"><span className="replicate-caption">EXPERIMENT PLAN</span><h3>{saved.plan.title}</h3><p>{saved.plan.summary}</p><h4>{saved.plan.experiment}</h4><p>{saved.plan.methodology}</p><ol>{saved.plan.steps.map((step,i)=><li key={i}>{step}</li>)}</ol><h4>Expected results from the paper</h4><p>{saved.plan.expected_results}</p>{[['Requirements',saved.plan.requirements],['Missing inputs',saved.plan.missing],['Limitations & assumptions',saved.plan.limitations]].map(([heading,items])=>(items as string[]).length>0&&<div key={heading as string}><h4>{heading as string}</h4><ul>{(items as string[]).map((item,i)=><li key={i}>{item}</li>)}</ul></div>)}<small>Source: {saved.source}</small></section>
+ <section className="replicate-code"><div className="replicate-code-header"><FileText size={14}/><span>{saved.path.split('/').pop()}</span><span className="spacer"/><button className="outline-btn" disabled={!!busy} onClick={()=>onInsert(code)}><Plus size={13}/>To notebook</button><button className="primary-btn" disabled={!!busy} onClick={()=>void run()}><Play size={13}/>Run locally</button></div><Editor height="390px" language="python" theme="pearl" value={code} onChange={value=>{onSaveFiles([{path:saved.path,content:value||''}]);setSyntax('Edited · run to test');setOutput(null);}} options={{readOnly:!!busy,minimap:{enabled:false},fontSize:12,wordWrap:'on',automaticLayout:true,scrollBeyondLastLine:false}}/><div className="replicate-code-note">{syntax||'Generated code · not yet executed'} · Saved in project Files</div><div className="replicate-output"><h4>Results <button className="outline-btn" disabled={!!busy} onClick={onAnalyze}>Analyze with Ask AI</button></h4>{output?<><span className={`metric-status ${output.error?'different':'match'}`}>{output.error?'Execution failed':'Execution completed — review scientific validity'}</span><pre>{[output.stdout,output.stderr,output.error].filter(Boolean).join('\n')||'Finished with no printed output.'}</pre>{output.images?.map((image,i)=><img key={i} src={image} alt={`Experiment figure ${i+1}`}/>)}</>:<p>Run the file to see actual output and figures here. Required datasets or packages may need to be supplied first.</p>}</div></section></div>:<div className="replicate-empty"><FileText size={25}/><h3>A workspace for this paper’s experiment</h3><p>The method and requirements appear on the left; editable Python and its results appear on the right.</p></div>}
+ </div>;
+}

@@ -2,6 +2,7 @@ export type Cell = {
   id: string;
   type: 'markdown' | 'latex' | 'python' | 'javascript';
   source: string;
+  executedSource?: string;
   editorHeight?: number;
   output?: string;
   error?: string;

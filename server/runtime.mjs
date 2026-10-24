@@ -1,3 +1,6 @@
+import { planReplication, fetchArxiv } from './ai/paper-replication.mjs';
+import { replicate } from './replicate.mjs';
+import { chatReply } from './ai/chat.mjs';
 import { composeImage } from './ai/image-compose.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -185,6 +188,10 @@ export function runtimePlugin() {
         if (req.url === '/api/compose/image') return send(200, await composeImage(data));
         if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
         if (req.url === '/api/repair/latex') return send(200, await proposeLatexRepair(data));
+        if (req.url === '/api/replicate/paper') return send(200, await fetchArxiv(data.url));
+        if (req.url === '/api/replicate/plan') return send(200, await planReplication(data));
+        if (req.url === '/api/tools/replicate') return send(200, await replicate(data, {python:runtime.python,cwd:projectRoot}));
+        if (req.url === '/api/chat') return send(200, await chatReply(data));
         if (req.url === '/api/review') return send(200, await reviewPaper(data));
         if (req.url === '/api/execute') return send(200, await runtime.execute(data));
         if (req.url === '/api/compile') return send(200, await runtime.compile(data));
