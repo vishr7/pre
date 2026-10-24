@@ -4,6 +4,16 @@ dist/
 
 *.tsbuildinfo
 
-.runtime/
+# Python backend
+backend/.venv/
 .venv/
-__pycache__/
+**/__pycache__/
+*.pyc
+
+# Runtime files
+.runtime/
+
+# Environment variables and API keys
+.env
+.env.*
+!.env.example
