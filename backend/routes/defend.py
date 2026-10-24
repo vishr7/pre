@@ -59,7 +59,7 @@ async def get_signed_url(
             detail="ElevenLabs is not configured"
         )
 
- 
+
 
     url = "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url"
 
