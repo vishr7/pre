@@ -51,6 +51,40 @@ def test_gives_up_after_max_retries(fake):
         gemini.structured_call("prompt", EditResponse)
 
 
+class OverloadedModels(FakeModels):
+    """Fails with 503 for `bad_model`, answers normally otherwise."""
+
+    def __init__(self, replies, bad_model):
+        super().__init__(replies)
+        self.bad_model = bad_model
+        self.models_used = []
+
+    def generate_content(self, model, contents, config):
+        self.models_used.append(model)
+        if model == self.bad_model:
+            raise gemini.errors.APIError(503, {"error": {"message": "high demand"}})
+        return super().generate_content(model, contents, config)
+
+
+def test_falls_back_on_overload(monkeypatch):
+    models = OverloadedModels([VALID], bad_model="main")
+    monkeypatch.setattr(gemini, "_client", SimpleNamespace(models=models))
+    monkeypatch.setenv("GEMINI_MODEL", "main")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", "backup")
+    out = gemini.structured_call("prompt", EditResponse)
+    assert out.edits[0].new_text == "b"
+    assert models.models_used == ["main", "backup"]
+
+
+def test_api_error_without_fallback_is_gemini_error(monkeypatch):
+    models = OverloadedModels([], bad_model="main")
+    monkeypatch.setattr(gemini, "_client", SimpleNamespace(models=models))
+    monkeypatch.setenv("GEMINI_MODEL", "main")
+    monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)
+    with pytest.raises(gemini.GeminiError, match="503"):
+        gemini.structured_call("prompt", EditResponse)
+
+
 def test_missing_model_env(monkeypatch):
     monkeypatch.setattr(gemini, "_client", SimpleNamespace(models=None))
     monkeypatch.delenv("GEMINI_MODEL", raising=False)

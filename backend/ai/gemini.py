@@ -3,18 +3,24 @@
 Usage (also for Person 3):
     from ai.gemini import structured_call
     result = structured_call("Extract the hyperparameters from ...", MySchema)
+
+Env: GEMINI_API_KEY, GEMINI_MODEL, and optional GEMINI_FALLBACK_MODEL (used
+when the main model is overloaded or out of quota).
 """
 
 import os
 from typing import Optional, TypeVar
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 
 MAX_RETRIES = 2
+
+# Overloaded / rate-limited / server errors: worth switching to the fallback model.
+FALLBACK_STATUS_CODES = {429, 500, 503, 504}
 
 _client: Optional[genai.Client] = None
 
@@ -33,11 +39,27 @@ def _get_client() -> genai.Client:
     return _client
 
 
-def _get_model() -> str:
+def _get_models() -> list[str]:
     model = os.environ.get("GEMINI_MODEL")
     if not model:
         raise GeminiError("GEMINI_MODEL is not set")
-    return model
+    fallback = os.environ.get("GEMINI_FALLBACK_MODEL")
+    return [model, fallback] if fallback and fallback != model else [model]
+
+
+def _generate(client: genai.Client, models: list[str], contents: str, config) -> str:
+    """Call the first model; on overload/quota errors, try the fallback."""
+    for i, model in enumerate(models):
+        try:
+            response = client.models.generate_content(
+                model=model, contents=contents, config=config
+            )
+            return response.text or ""
+        except errors.APIError as e:
+            if e.code in FALLBACK_STATUS_CODES and i + 1 < len(models):
+                continue
+            raise GeminiError(f"Gemini API error from {model}: {e.code} {e.message}") from e
+    raise AssertionError("unreachable")
 
 
 def structured_call(
@@ -52,7 +74,7 @@ def structured_call(
     (up to `retries` extra attempts), then raises GeminiError.
     """
     client = _get_client()
-    model = _get_model()
+    models = _get_models()
     config = types.GenerateContentConfig(
         system_instruction=system,
         response_mime_type="application/json",
@@ -62,10 +84,7 @@ def structured_call(
     contents = prompt
     last_error = ""
     for _ in range(retries + 1):
-        response = client.models.generate_content(
-            model=model, contents=contents, config=config
-        )
-        text = response.text or ""
+        text = _generate(client, models, contents, config)
         try:
             return schema.model_validate_json(text)
         except ValidationError as e:

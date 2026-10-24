@@ -50,4 +50,4 @@ Python, FastAPI (router mounted into Person 4's app), Google Gemini via the `goo
 6. Stretch: AI-generated rebuttal drafts from review comments
 
 ## Status
-- [x] 1  - [ ] 2  - [ ] 3  - [ ] 4  - [ ] 5
+- [x] 1  - [x] 2  - [ ] 3  - [ ] 4  - [ ] 5
