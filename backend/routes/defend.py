@@ -1,37 +1,44 @@
-
-import os
-
-from pathlib import Path
-
-from dotenv import load_dotenv
-from fastapi import APIRouter
 import httpx
-from fastapi import HTTPException
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from fastapi import APIRouter, HTTPException
+
+try:
+    from ..config import get_settings, ConfigurationError
+except ImportError:
+    from config import get_settings, ConfigurationError
+
 
 router = APIRouter(prefix="/defend", tags=["Defend"])
 
 
 @router.get("/health")
 def defend_health():
-    agent_id = os.getenv("ELEVENLABS_AGENT_ID")
+    settings = get_settings()
+
+    try:
+        settings.require("ELEVENLABS_AGENT_ID")
+        configured = True
+    except ConfigurationError:
+        configured = False
 
     return {
         "status": "ok",
         "service": "PRE Defend",
-        "agent_configured": bool(agent_id),
+        "agent_configured": configured,
     }
 
 @router.get("/signed-url")
 async def get_signed_url():
-    agent_id = os.getenv("ELEVENLABS_AGENT_ID")
-    api_key = os.getenv("ELEVENLABS_API_KEY")
-
-    if not agent_id or not api_key:
+    try:
+        settings = get_settings()
+        agent_id = settings.require("ELEVENLABS_AGENT_ID").get_secret_value()
+        api_key = settings.require("ELEVENLABS_API_KEY").get_secret_value()
+    except ConfigurationError:
         raise HTTPException(
             status_code=500,
             detail="ElevenLabs is not configured"
         )
+
+ 
 
     url = "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url"
 
@@ -49,5 +56,6 @@ async def get_signed_url():
                 status_code=502,
                 detail="Could not connect to ElevenLabs"
             )
+
 
     return {"signed_url": response.json()["signed_url"]}
