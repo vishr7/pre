@@ -24,7 +24,7 @@ const reviewTypes: Record<string,string> = {
 const scoreHelp: Record<string,string> = {methodology:'How sound and well explained your methods are.',novelty:'How clearly the paper establishes its contribution.',clarity:'How easy the paper is to follow.',reproducibility:'Whether others have enough detail to repeat the work.',arithmetic:'Whether the paper’s calculations and reported numbers add up. Checked by code, not estimated by AI.'};
 export default function ReviewPanel({ base, files, cells, review, onReview, onShowQuote, onError, onApplyEdits }: {
   base: string; files: ProjectFile[]; cells: Cell[]; review: Review | null; onReview: (review: Review) => void;
-  onShowQuote: (quote: string) => void; onError: (message: string) => void; onApplyEdits: (proposal: EditProposal) => Promise<boolean>;
+  onShowQuote: (quote: string) => void; onError: (message: string) => void; onApplyEdits: (proposal: EditProposal, commentId: string) => Promise<boolean>;
 }) {
   const [venue, setVenue] = useState('generic');
   const [working, setWorking] = useState(false);
@@ -45,7 +45,7 @@ export default function ReviewPanel({ base, files, cells, review, onReview, onSh
       setFix(comment.id, { phase: 'ready', message: result.message, proposal: result.edits.length ? prepareChatEdits(result.edits, cells, files) : undefined });
     } catch (error) { setFixes(({ [comment.id]: _, ...rest }) => rest); onError((error as Error).message); }
   }
-  async function apply(id: string, proposal: EditProposal) { if (await onApplyEdits(proposal)) setFix(id, { ...fixes[id], phase: 'applied' }); }
+  async function apply(id: string, proposal: EditProposal) { if (await onApplyEdits(proposal, id)) setFix(id, { ...fixes[id], phase: 'applied' }); }
   return <div className="tool-workspace review-workspace">
     <div className="tool-eyebrow"><SquarePen size={12}/> PRE REVIEW</div>
     <h2>Get feedback on your paper</h2>
@@ -56,7 +56,7 @@ export default function ReviewPanel({ base, files, cells, review, onReview, onSh
       <VenueMenu value={venue} disabled={working} onChange={setVenue}/>
       <button className="primary-btn" disabled={working} onClick={start}>{working ? <LoaderCircle size={15} className="spin"/> : <Sparkles size={15}/>}{working ? 'Reviewing…' : review ? 'Review again' : 'Start review'}</button>
     </div>
-    <p className="review-type-help" role="status">{reviewTypes[venue]}</p></div>
+    <p className="review-type-help" role="status">{working ? 'Reviewing your paper… usually 15–30 seconds. Checking claims, methods, and every calculation.' : reviewTypes[venue]}</p></div>
     {!review && <div className="review-explainer"><h3>What you’ll get</h3><div className="review-explainer-grid"><div><strong>Overall assessment</strong><p>A summary and scores for methods, contribution, clarity, and reproducibility.</p></div><div><strong>Comments on specific passages</strong><p>Each comment quotes your text, explains the issue, and suggests an improvement.</p></div><div><strong>Next steps</strong><p>Action items to help you decide what to revise. Your paper stays unchanged.</p></div></div></div>}
     {review && <>
       <div className="review-section"><p className="review-summary">{review.summary}</p>
@@ -70,7 +70,7 @@ export default function ReviewPanel({ base, files, cells, review, onReview, onSh
         <p>{c.comment}</p><p className="review-fix"><b>Fix:</b> {c.suggestion}</p>
         {fixes[c.id] && fixes[c.id].phase !== 'working' && <div className="chat-edit-proposal"><strong>Suggested fix</strong><p>{fixes[c.id].message}</p>
           {fixes[c.id].proposal?.edits.map((edit, j) => <details key={j} open><summary>{edit.target === 'cell' ? 'Notebook cell' : edit.id} · {edit.reason}</summary><pre className="chat-edit-old">− {edit.old_text}</pre><pre className="chat-edit-new">+ {edit.new_text}</pre></details>)}
-          <div>{fixes[c.id].proposal && <button className="primary-btn" disabled={fixes[c.id].phase !== 'ready'} onClick={() => apply(c.id, fixes[c.id].proposal!)}>{fixes[c.id].phase === 'applied' ? 'Applied' : 'Apply edits'}</button>}
+          <div>{fixes[c.id].proposal && <button className="primary-btn" disabled={fixes[c.id].phase !== 'ready'} onClick={() => apply(c.id, fixes[c.id].proposal!)}>{fixes[c.id].phase === 'applied' ? 'Opened in paper' : 'Review in paper'}</button>}
             <button className="outline-btn" disabled={fixes[c.id].phase !== 'ready'} onClick={() => setFix(c.id, { ...fixes[c.id], phase: 'rejected' })}>{fixes[c.id].phase === 'rejected' ? 'Rejected' : fixes[c.id].proposal ? 'Reject' : 'Dismiss'}</button></div></div>}
       </article>)}
       <div className="review-heading">Action items <span>{review.action_items.length}</span></div>

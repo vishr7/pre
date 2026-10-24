@@ -7,9 +7,16 @@ export const reviewFixSchema = {
   properties: { message: { type: 'string' }, edits: { type: 'array', items: { type: 'object', required: ['old_text', 'new_text', 'reason'], additionalProperties: false,
     properties: { old_text: {type:'string'}, new_text: {type:'string'}, reason: {type:'string'} } } } },
 };
+// Only the text around the quote is sent: much faster, and fixes are local anyway.
+export function excerptAround(source, quote, radius = 1500) {
+  const at = source.indexOf(quote);
+  const start = source.lastIndexOf('\n', Math.max(0, at - radius)) + 1;
+  const after = source.indexOf('\n', Math.min(source.length, at + quote.length + radius));
+  return source.slice(start, after < 0 ? source.length : after);
+}
 export function reviewFixPrompt(comment, source) {
   return `You fix one reviewer comment on a LaTeX research paper with the smallest possible targeted edits.
-Return exact-quote replacements: each old_text must occur exactly once in SOURCE, edits must not overlap, and each must change the text. Do not rewrite unrelated text or the whole document.
+SOURCE is the part of the paper around the quoted passage. Return exact-quote replacements: each old_text must be copied exactly from SOURCE and be specific enough to occur only once in the paper; edits must not overlap, and each must change the text. Do not rewrite unrelated text.
 Never invent results, data, citations, or experiments. If the fix needs new experiments or information the paper does not contain, return an empty edits array and explain in message what the author must add.
 For calculation errors, correct the stated value using the paper's own numbers. For unsupported or overstated claims, rewrite them so they match the evidence. Keep the paper's existing LaTeX style.
 message: one or two sentences describing the change.
@@ -23,7 +30,7 @@ export async function proposeReviewFix({ comment, target } = {}, dependencies) {
   if (target.source.length > 100000) throw new Error('This file is too large to fix automatically.');
   const context = target.target === 'cell' ? { notebook: [{ id: target.id, source: target.source }] } : { files: [{ path: target.id, content: target.source }] };
   const { quote, comment: text, suggestion, category } = comment;
-  return structured_call({ prompt: reviewFixPrompt({ quote, comment: text, suggestion, category }, target.source), schema: reviewFixSchema, validate: result => {
+  return structured_call({ prompt: reviewFixPrompt({ quote, comment: text, suggestion, category }, excerptAround(target.source, quote)), schema: reviewFixSchema, thinking: { thinkingLevel: 'low' }, validate: result => {
     if (typeof result?.message !== 'string' || !Array.isArray(result.edits)) throw new Error('Expected a message and edits.');
     const edits = result.edits.map(edit => ({ target: target.target, id: target.id, ...edit }));
     return { message: result.message, edits: validateChatEdits(edits, context) };
