@@ -1,5 +1,140 @@
 # Scientific integration handoff
 
+## Unified results and next actions (Prompt 12)
+
+`pre_science.results` normalizes `ExperimentResult`, `DatasetSummary`,
+`DatasetProcessingResult`, `ReplicationReport`, `OptimizationResult`,
+`RobustnessReport`, `StatisticalReport`, `LatexTableResponse`, and the original
+`ScientificWorkflowReport`. It only accepts known model instances and revalidates
+them; dictionaries, unknown types and non-finite JSON evidence are rejected.
+Specific `normalize_*` adapters and `normalize_scientific_result()` return
+`UnifiedScientificResult`. No computation service, subprocess, file/config access,
+approval, artifact fetch or AI call is launched by normalization or action rules.
+
+The unified model contains optional actual `result_id`/`source_id`/`created_at`,
+typed `source_version`, `freshness`, original status, title/summary, typed metrics
+(name/value/role/count), parameters, dataset references, opaque artifacts,
+warnings, limitations, provenance, typed evidence, and next actions. Full raw
+evidence is retained in `original_payload`, or through `original_reference`.
+Missing values stay `None`; zero is a measurement. No IDs or timestamps are
+invented: optimization uses its existing run ID, processing its processing ID;
+other results can receive an existing backend record ID via `result_id=`.
+The original payload contains every original field, including trial histories,
+comparisons, stdout/stderr, source proposals, intervals and limitations.
+
+Backward compatibility is explicit:
+
+* `integration.tool_response(record)` keeps its original `{result, scientific}`
+  contract, where `scientific` is the original report. All prior result text is
+  unchanged. Robustness, statistical and LaTeX responses are now also supported.
+* `results.scientific_response(record, ...)` is the **opt-in unified contract**:
+  `{result: escaped Markdown, scientific: UnifiedScientificResult JSON}`.
+  Original evidence is under `scientific.original_payload` or the authorized
+  original reference. Do not silently replace existing API responses with it.
+
+Person 4 example (inside an existing authorized handler, no new route supplied):
+
+```python
+from pre_science.results import scientific_response, SourceVersion
+from pre_science.next_actions import ActionContext
+
+# Persist/retain the exact record first, then issue its opaque authorized locator.
+response = scientific_response(
+    stored_report, result_id=stored_record_id,
+    original_reference=authorized_record_reference,
+    current_source_version=SourceVersion(kind='code_sha256', value=current_code_hash),
+    action_context=ActionContext(
+        available_artifact_references=authorized_available_artifact_ids,
+        authorized_configuration_reference=authorized_configuration_id,
+    ), action_limit=4,
+)
+```
+
+Omit a current fingerprint when unknown. Matching/stale requires both fingerprints
+and the same kind (`code_sha256`, `dataset_sha256`, `request_sha256`, or
+`record_sha256`); otherwise freshness is `unknown`. Matching a code hash does not
+verify dataset/configuration freshness. Derived request/record hashes are version
+fingerprints, not invented experiment IDs or external authorization evidence.
+
+The new unified contract never creates artifact URLs or follows local paths.
+If an original record contains Windows, UNC or absolute POSIX paths, supply an
+opaque `original_reference`: exact evidence stays in the backend, presentation
+paths are replaced with `[local path omitted]`, and a warning explains this.
+Without that reference normalization fails rather than silently losing evidence.
+Path detection is conservative and can flag path-like strings in code/text;
+backend references are recommended for all production reports. The engine cannot
+verify that the caller actually persisted or authorized a reference. The original
+legacy adapter remains an internal authorized full-report response, not a path or
+secret redaction boundary. Neither adapter sanitizes arbitrary embedded secrets;
+the backend must enforce disclosure/ownership policy before returning evidence.
+
+Person 1 can render `result` using the existing Markdown view, or use the unified
+`scientific` fields in one Results component. Display status, evidence completeness,
+freshness and scientific limitations separately. Keep missing metrics distinct
+from zero. Resolve figure bytes only through Person 4's authorized artifact
+delivery. `original_payload` is structured data, never executable content.
+For workflow reports the full child reports remain in the original evidence;
+normalize individual children when rendering their metrics/actions.
+
+`next_actions.py` exposes `ActionContext`, `recommend_next_actions()` and
+`with_next_actions(normalized, context, limit=4)`. The complete nine-rule list is
+`all_next_actions`; `next_actions` contains at most 0–5 eligible entries in order:
+missing inputs, failed/incomplete/stale evidence, preprocessing review, figures,
+tables/comparisons, then follow-up drafts. No AI confidence score is assigned.
+Every descriptor includes ID/title/description/type, eligibility/reason, required
+and missing inputs, approval flag, source result IDs, suggested parameters,
+warnings and `execution_authorized=False`. With no known result ID the source ID
+list is empty; a backend should pass its real stored record ID for action routing.
+
+Rules and blockers:
+
+* Tables: recorded measurements from experiment/replication records only; current
+  formatter does not accept optimization, robustness or statistical reports.
+* Figures: only recorded opaque references that the backend lists as available.
+  This is caller attestation; no storage access or retrieval authorization occurs.
+* Reference comparison: successful actual measurements plus matching reviewed
+  reference names. Replication approval is checked against the specification
+  digest; optional context references require `references_reviewed=True`.
+* Preprocessing: missing values/duplicates offer a review, never transformations.
+* Robustness: requires recorded code/configuration or a backend-authorized source
+  reference. Experiment outputs alone generally lack code. Stale sources block
+  this draft. Seeds/settings are never silently chosen.
+* Optimized evaluation: requires an actual successful selected best configuration;
+  new design, restricted execution and separate approval remain mandatory.
+* Statistics: add another normalized robustness study in `comparison_results`.
+  Both need complete repeated observations of common named metrics and caller
+  `comparison_design_reviewed=True` for units/design compatibility. No test,
+  alternative, pairing or independence is selected/established. Actual paired
+  analysis still requires the statistical adapter's explicit condition matching.
+* Missing/reproducibility and failed/stale reviews identify recorded gaps and
+  unknown configuration references without declaring unknown facts failures.
+
+An eligible draft can still list inputs required before execution. Actions are
+display suggestions, never authorization or transport capability claims. Existing
+host notebook execution of generated code remains outside this layer and unsafe
+for untrusted code; Person 4 must supply restricted execution and fresh approval.
+
+Demo: `python -m pre_science.demo_results`. It reuses genuine retained reports
+from `.runtime/end-to-end`, `robustness`, `statistics`, and `latex-tables`, selecting
+the latest `*/report.json` in each known demo folder. Run those trusted demos first
+if absent. The new demo does not rerun experiments. It saves eight normalized
+examples and their exact original-record lookup map under `.runtime/results/`.
+That local map demonstrates reference resolution, not production authentication.
+Only the demo CLI performs this explicit demo-file I/O; the results/rules do not.
+
+Tests: `python -m pytest tests/science/test_results.py tests/science/test_next_actions.py -q`;
+complete suite: `python -m pytest tests/science -q`.
+
+Prompt 12 verification: **339 passed, 2 skipped, 14 warnings** in 57.10 seconds.
+Skips remain Windows symlink permissions and unavailable Tectonic; warnings are
+existing Agg `show()` calls. The retained-record demo normalized eight genuine
+result types: local CSV baseline accuracy 1.0, two matching replication metrics,
+three successful optimization trials (best 1.0), five-seed accuracy mean 0.96
+with sample SD 0.028974232912011764, the actual paired statistical report,
+generated LaTeX, and 15-row inspection/12-row processed data. These are retained
+demonstration measurements, not newly run experiments or proof of deployment.
+No Docker, browser or cloud verification was performed.
+
 ## Statistical validation (Prompt 10)
 
 `pre_science.statistics` provides `StatisticalRequest`, `StatisticalReport`,
