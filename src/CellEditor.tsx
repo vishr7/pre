@@ -10,11 +10,12 @@ type Props = {
   cell: Cell;
   onGenerate: (source: string, line: number) => void;
   onChange: (source: string) => void;
+  onMount?: OnMount;
   onContext?: (selection:string)=>void;
   onResize: (height: number | undefined) => void;
 };
 
-export default function CellEditor({ cell, onChange, onResize, onGenerate, onContext }: Props) {
+export default function CellEditor({ cell, onChange, onResize, onGenerate, onContext, onMount }: Props) {
   const [contentHeight, setContentHeight] = useState(() => Math.min(480, Math.max(MIN_HEIGHT, cell.source.split('\n').length * 20 + 24)));
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const drag = useRef<{ y: number; height: number; latest: number } | null>(null);
@@ -23,7 +24,7 @@ export default function CellEditor({ cell, onChange, onResize, onGenerate, onCon
   const keySubscription = useRef<{dispose: () => void} | null>(null);
   const contextSubscriptions=useRef<{dispose:()=>void}[]>([]);
   const height = dragHeight ?? (cell.editorHeight === undefined ? contentHeight : clamp(cell.editorHeight));
-  const mount: OnMount = editor => {
+  const mount: OnMount = (editor,monaco) => {
     const measure = () => setContentHeight(Math.min(480, Math.max(MIN_HEIGHT, editor.getContentHeight())));
     subscription.current?.dispose();
     subscription.current = editor.onDidContentSizeChange(measure);
@@ -40,6 +41,7 @@ export default function CellEditor({ cell, onChange, onResize, onGenerate, onCon
     const publish=()=>{const selection=editor.getSelection();latest.current.onContext?.(selection?editor.getModel()?.getValueInRange(selection).slice(0,12000)||'':'');};
     contextSubscriptions.current=[editor.onDidFocusEditorText(publish),editor.onDidChangeCursorSelection(()=>{if(editor.hasTextFocus())publish();})];
     measure();
+    onMount?.(editor,monaco);
   };
   useEffect(() => () => { subscription.current?.dispose(); keySubscription.current?.dispose(); contextSubscriptions.current.forEach(s=>s.dispose()); }, []);
   return <div className="cell-editor">

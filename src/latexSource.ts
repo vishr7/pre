@@ -59,6 +59,8 @@ export function notebookLatex(cells: Cell[]): string | undefined {
 
 export function paperLatex(files: {path: string; content: string}[], cells: Cell[] = []): string {
   const tex = files.filter(file => file.path.endsWith('.tex')).sort((a,b) => {
+    if(a.path === 'main.tex') return -1;
+    if(b.path === 'main.tex') return 1;
     if(a.path === 'paper/main.tex') return -1;
     if(b.path === 'paper/main.tex') return 1;
     return a.path.localeCompare(b.path);

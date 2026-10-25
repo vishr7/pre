@@ -13,11 +13,11 @@ Object.defineProperty(globalThis, 'localStorage', {value:{ getItem:key=>data.get
 test('New projects have independent blank cells and files and survive reload', () => {
  data.clear(); assert.deepEqual(readProjects(), []);
  const a = newProject('First project'); const b = newProject('Second project');
- assert.notEqual(a.id,b.id); assert.equal(a.cells[0].source,'');
+ assert.notEqual(a.id,b.id); const blank=b.cells[0].source;assert.equal(a.cells[0].type,'latex');assert.equal(a.cells[0].filePath,a.files[0].path);assert.equal(a.cells[0].source,a.files[0].content);
  a.cells[0].source = 'x = 42'; a.files[0].content = 'My paper';
- assert.equal(b.cells[0].source,''); assert.notEqual(b.files[0].content,'My paper');
+ assert.equal(b.cells[0].source,blank); assert.notEqual(b.files[0].content,'My paper');
  writeProjects([a,b]); const reloaded=readProjects();
- assert.equal(reloaded[0].cells[0].source,'x = 42'); assert.equal(reloaded[1].cells[0].source,'');
+ assert.equal(reloaded[0].cells[0].source,'x = 42'); assert.equal(reloaded[1].cells[0].source,blank);
 });
 test('Existing work migrates once and remains unchanged', () => {
  data.clear(); const cell={id:'mine',type:'python',source:'print("keep my work")'};

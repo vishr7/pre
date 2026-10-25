@@ -1,6 +1,6 @@
 # PRE Compose
 
-A simple research notebook with executable Python, JavaScript, LaTeX, and Markdown cells.
+A paper-first research workspace: organize LaTeX sections, find literature, assess evidence, and let AI prepare experiments for approval.
 
 ## Run
 
@@ -42,7 +42,7 @@ The local endpoint `POST /api/repair/latex` accepts `{ source, error }` and retu
 
 ## Terminal and SSH
 
-The terminal opens automatically beneath the middle notebook/editor column, with matching pearl-and-pink styling. It stays docked within that column while the files sidebar and PDF preview keep their full height. Click **Terminal** to collapse or expand it. It starts your local `$SHELL` in the repository directory with a real pseudo-terminal. Run normal commands or connect to a remote host:
+The collapsed terminal bar sits beneath the middle notebook/editor column, with matching pearl-and-pink styling. It stays docked within that column while the files sidebar and PDF preview keep their full height. Click **Terminal** to collapse or expand it. It starts your local `$SHELL` in the repository directory with a real pseudo-terminal. Run normal commands or connect to a remote host:
 
 ```sh
 ssh username@hostname
@@ -52,26 +52,32 @@ SSH uses your computer's installed SSH client, keys, agent, and host configurati
 
 The terminal runs locally on macOS, Linux, and Windows 10 1809+ through `npm run dev` or `npm run preview`; it does not use the optional remote backend URL. On Windows it opens PowerShell (or `pwsh` if installed; set `PRE_TERMINAL_SHELL` to override) in a ConPTY pseudo console and uses Windows' built-in OpenSSH client. It has your local user permissions and starts in the actual checkout, not the browser's virtual file tree. Browser-saved project files are not automatically mirrored into the terminal directory. Shell output and keystrokes are not stored by PRE. WebSocket connections require a same-origin, short-lived single-use ticket.
 
-## Cells
+## File explorer
 
-- **Python:** Run code, print output, inspect the final expression, and display Matplotlib plots. Variables persist between Python cells. Project files are copied into the kernel's working directory; Python can import from the root and `src/`.
-- **JavaScript:** Run standard JavaScript and `console.log` in a separate persistent Node VM context. The last expression is displayed; returned promises are awaited. Use `var` for bindings you want to redefine when rerunning cells. Browser DOM, Node imports, and top-level `await` are not provided.
-- **LaTeX:** Compile the selected cell into a real PDF. Fragments get an article wrapper with `amsmath`, `amssymb`, and `graphicx`; complete documents are used unchanged. The preview's Compile button compiles `paper/main.tex` instead.
-- **Markdown:** Click Render to display the text. Double-click the rendered cell or use its edit icon to edit it.
+Hover a folder and use **+** to create a file inside it. Nested paths such as `sections/background/related-work.tex` create the corresponding folder hierarchy. Drag project files onto a folder to move them, or onto the empty area below the tree to move them to the project root. The row’s **Move or rename** button provides the same action without dragging. Moves preserve linked cell IDs and update literal LaTeX input/include and bibliography references; macro-generated paths may need manual adjustment. Existing files are never overwritten by a move.
 
-Editors automatically fit their content, up to a scrollable 480-pixel height. Drag the bottom handle to resize manually; click **Fit content** or double-click the handle to restore automatic sizing. Manual heights are saved per cell. The focused handle also supports arrow keys and Enter.
+Drop files from your computer onto a folder to import them there. Duplicate paths are skipped. Image imports retain the existing session-only storage behavior.
 
-Change a cell's language with its dropdown. **Run all** runs cells from top to bottom and stops at the first error. **Stop** interrupts the active execution and clears both code kernels. **Restart** clears variables while keeping old outputs visible. Code execution times out after 30 seconds; LaTeX after 90 seconds. Python and JavaScript do not share variables. Kernel state lasts until the page session or dev server is restarted; saved outputs are not live variables.
+## Manuscript layout
 
-New projects start with an empty Python cell and a minimal LaTeX file. Untouched demo content from older versions is removed automatically; edited cells and files are preserved. For a quick plotting check, add:
+New projects use `main.tex` for document settings and section order, `sections/introduction.tex` for the first section, and a `figures/` folder in the explorer. **Add LaTeX section** creates a linked file in `sections/` and adds its `\input` to the document root. Single uploaded images use `figures/filename`; figure uploads are currently session-only, as indicated in the UI.
 
-```python
-import numpy as np
-import matplotlib.pyplot as plt
-x = np.linspace(0, 6, 100)
-plt.plot(x, np.sin(x))
-plt.show()
-```
+For an existing manuscript, **Organize manuscript** splits top-level `\section` headings into numbered files under `sections/` and creates `main.tex` to include them. The preamble and opening material remain in the root. Original files and cells are retained in a JSON recovery snapshot under `history/`. Other project files and code are preserved. Review and compile the result after reorganizing complex LaTeX.
+
+## Manuscript sections and AI experiments
+
+**Sections** is the manuscript editor and contains only LaTeX cells. The PDF preview compiles all manuscript sources together. Add sections with **Add LaTeX section**. Editors fit their content and can be resized by dragging their bottom handle. Existing non-LaTeX cells and their outputs are retained in project storage and AI context, but are hidden from the writing interface.
+
+Ask AI to design an experiment. Review its hypothesis, comparisons, metric and execution location, then choose **Approve & run** or **Save for later**. Scripts, the plan and completed results are saved under `experiments/`; the latest report is also available at `iteration/latest-results.json`. No code cells are inserted into the manuscript. The current quick-test runner permits up to 32 tests, four simultaneous processes and 30 seconds per test. Required packages and data must already exist on the execution machine. SSH is used when detected; explicit SSH requests never silently fall back locally. AI proposes paper analysis after execution; edits still require approval.
+
+## Research tools
+
+- **Literature:** Search Crossref by topic or DOI, select sources, and request a literature synthesis or use them as comparison baselines. Search results contain metadata and abstracts when available, not automatically retrieved full papers. Citation checks detect missing keys and duplicate definitions and look up up to 12 BibTeX DOI fields in Crossref. DOI registration does not verify that a citation supports a claim.
+- **Ablations:** Compare with related published methods under matched conditions, then remove individual components to isolate contributions. AI requests missing papers, implementations or datasets instead of treating a toy demonstration as a faithful reproduction. Better-than-baseline claims require comparable measurements.
+- **Iterate:** Identify an evidence gap, propose a change to the current method, and compare it against the current baseline through Ask AI.
+- **Review:** Prioritize critical and major concerns, filter comments, inspect criterion assessments, request exact-source edits, or turn a concern into an AI experiment plan. Changed manuscripts invalidate new review fixes until reviewed again.
+- **Defend:** Practice questions and thesis-defense conversations.
+
 
 ## Workspace
 
