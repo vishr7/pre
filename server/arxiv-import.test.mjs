@@ -1,22 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { organizePaperFolder, addFiguresPath, describeFile } from '../src/arxivImport.ts';
-import { exposeSupportFiles } from './runtime.mjs';
+import { compileSupport } from './runtime.mjs';
 const doc = body => `\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n${body}\n\\end{document}`;
 const png = { data: 'iVBORw0KGgo=' };
 
-test('An arXiv folder is sorted into main.tex, sections, figures, bibliography, and styles',()=>{
+test('An arXiv folder is sorted Overleaf-style: main, bibliography, and templates at the top; sections and figures in folders',()=>{
  const texts=[{path:'paper.tex',content:doc('\\input{intro}\n\\include{chapters/method.tex}\n\\bibliography{refs}')},
   {path:'intro.tex',content:'Intro \\input{chapters/method}'},{path:'chapters/method.tex',content:'Method'},
   {path:'refs.bib',content:'@a{}'},{path:'main.bbl',content:'\\begin{thebibliography}'},{path:'plain.bst',content:''},
   {path:'conf.sty',content:''},{path:'llncs.cls',content:''},{path:'README.md',content:'hi'}];
  const {files,figures,main}=organizePaperFolder(texts,[{path:'plot.pdf',...png},{path:'figures/a.png',...png},{path:'img/b.png',...png}]);
  assert.equal(main,'paper.tex');
- assert.deepEqual(files.map(f=>f.path).sort(),['README.md','bibliography/main.bbl','bibliography/plain.bst','bibliography/refs.bib','main.tex','sections/chapters/method.tex','sections/intro.tex','styles/conf.sty','styles/llncs.cls']);
+ assert.deepEqual(files.map(f=>f.path).sort(),['README.md','conf.sty','llncs.cls','main.bbl','main.tex','plain.bst','refs.bib','sections/chapters/method.tex','sections/intro.tex']);
  assert.deepEqual(figures.map(f=>f.path),['figures/plot.pdf','figures/a.png','figures/img/b.png']);
  const paper=files.find(f=>f.path==='main.tex').content;
  assert.match(paper,/\\input\{sections\/intro\}/);assert.match(paper,/\\include\{sections\/chapters\/method\.tex\}/);
@@ -43,16 +39,11 @@ test('Hovering explains each kind of paper file',()=>{
  assert.match(describeFile('figures/a.PDF'),/Figure/);assert.equal(describeFile('notes.txt'),undefined);
 });
 
-test('Compile finds styles and bibliography files, preferring a pre-built .bbl over rebuilding from .bib',async()=>{
- const dir=await mkdtemp(path.join(tmpdir(),'pre-support-'));
- try{
-  await exposeSupportFiles(dir,[{path:'styles/conf.sty',content:'STY'},{path:'bibliography/refs.bib',content:'BIB'},{path:'bibliography/main.bbl',content:'BBL'},{path:'sections/intro.tex',content:'x'}],'cell');
-  assert.equal(await readFile(path.join(dir,'conf.sty'),'utf8'),'STY');
-  assert.equal(await readFile(path.join(dir,'cell.bbl'),'utf8'),'BBL');
-  assert.equal(existsSync(path.join(dir,'refs.bib')),false);assert.equal(existsSync(path.join(dir,'intro.tex')),false);
-  const dir2=await mkdtemp(path.join(tmpdir(),'pre-support-'));
-  await exposeSupportFiles(dir2,[{path:'bibliography/refs.bib',content:'BIB'}],'cell');
-  assert.equal(await readFile(path.join(dir2,'refs.bib'),'utf8'),'BIB'); // no .bbl: references are built from .bib
-  await rm(dir2,{recursive:true,force:true});
- }finally{await rm(dir,{recursive:true,force:true});}
+test('Compile prefers a pre-built .bbl and finds templates kept in folders',()=>{
+ const withBbl=compileSupport([{path:'main.tex',content:'x'},{path:'refs.bib',content:'BIB'},{path:'main.bbl',content:'BBL'},{path:'styles/conf.sty',content:'STY'}],'cell');
+ assert.deepEqual(withBbl.files.map(f=>f.path),['main.tex','main.bbl','styles/conf.sty']); // .bib left out: references are not rebuilt
+ assert.deepEqual(withBbl.extras,[{path:'conf.sty',content:'STY'},{path:'cell.bbl',content:'BBL'}]);
+ const withoutBbl=compileSupport([{path:'refs.bib',content:'BIB'},{path:'sections/intro.tex',content:'x'}],'cell');
+ assert.deepEqual(withoutBbl.files.map(f=>f.path),['refs.bib','sections/intro.tex']); // no .bbl: references are built from .bib
+ assert.deepEqual(withoutBbl.extras,[]);
 });
