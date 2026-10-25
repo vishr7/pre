@@ -18,24 +18,21 @@ export function describeFile(path: string): string | undefined {
 export const folderDescriptions: Record<string, string> = {
   sections: 'Parts of the paper that the main file pulls in',
   figures: 'Images and plots used in the paper',
-  bibliography: 'References: .bib database, .bst style, and pre-built .bbl list',
-  styles: 'Formatting templates: .sty packages and .cls classes',
 };
 
 const isDocument = (file: ProjectFile) => file.path.endsWith('.tex') && /^\s*\\documentclass(?:\[|\{)/m.test(file.content);
 const withoutTex = (path: string) => path.replace(/\.tex$/i, '');
 
-// Sorts an unzipped arXiv folder into main.tex, sections/, figures/, bibliography/, and styles/,
-// rewriting \input paths and adding \graphicspath so the paper still compiles after the move.
+// Sorts an unzipped arXiv folder the way Overleaf projects are usually laid out: main.tex, the bibliography,
+// and .sty/.cls/.bst templates at the top (where LaTeX looks for them), other .tex files in sections/, images in figures/.
+// \input paths are rewritten and \graphicspath is added so the paper still compiles after the move.
 export function organizePaperFolder(texts: ProjectFile[], images: UploadedFigure[], mainPath = 'main.tex') {
   const documents = texts.filter(isDocument);
   const main = documents.find(f => /(^|\/)(main|ms|paper)\.tex$/i.test(f.path)) || documents[0];
   const moved = new Map<string, string>();
   const place = (path: string): string => {
     if (main && path === main.path) return mainPath;
-    const name = path.split('/').pop()!;
-    if (/\.(bib|bbl|bst)$/i.test(path)) return `bibliography/${name}`;
-    if (/\.(sty|cls|clo)$/i.test(path)) return `styles/${name}`;
+    if (/\.(bib|bbl|bst|sty|cls|clo)$/i.test(path)) return path.split('/').pop()!;
     if (/\.tex$/i.test(path)) return path.startsWith('sections/') ? path : `sections/${path}`;
     return path;
   };

@@ -147,8 +147,8 @@ export class Runtime {
     let dir;
     try {
       dir = await mkdtemp(path.join(this.root, 'latex-'));
-      await writeFiles(dir, files);
-      await exposeSupportFiles(dir, files, source !== undefined ? 'cell' : path.basename(entrypoint, '.tex'));
+      const support = compileSupport(files, source !== undefined ? 'cell' : path.basename(entrypoint, '.tex'));
+      await writeFiles(dir, [...support.files, ...support.extras]);
       if(!Array.isArray(assets)||assets.length>40)throw new Error('Too many figure assets.');
       for(const asset of assets){
         const bytes=figureAssetBytes(asset);
@@ -184,20 +184,16 @@ export class Runtime {
     this.sessions.clear(); this.pdfs.clear();
   }
 }
-// LaTeX only looks next to the paper for .sty/.cls/.bib/.bst files, so copies from styles/ and bibliography/
-// are placed there too. When the paper ships one pre-built .bbl (as arXiv sources do), it is used under the
-// job name and the .bib is not exposed, so references are not rebuilt (Tectonic's BibTeX crashes on very long entries).
-export async function exposeSupportFiles(dir, files = [], jobname = 'cell') {
-  const support = files.filter(f => /^(styles|bibliography)\/[^/]+$/.test(f?.path || ''));
-  const bbl = support.filter(f => f.path.endsWith('.bbl'));
+// LaTeX only looks next to the paper for .sty/.cls/.bst/.bib files, so any kept in a folder are copied next to it.
+// When the paper ships one pre-built .bbl (as arXiv sources do), it is used under the job name and .bib files are
+// left out, so references are not rebuilt (Tectonic's BibTeX crashes on very long entries).
+export function compileSupport(files = [], jobname = 'cell') {
+  const bbl = files.filter(f => f?.path?.endsWith('.bbl'));
   const prebuilt = bbl.length === 1;
-  for (const file of support) {
-    if (prebuilt && file.path.endsWith('.bib')) continue;
-    const target = safePath(dir, file.path.split('/').pop());
-    if (!existsSync(target)) await writeFile(target, file.content);
-  }
-  const target = safePath(dir, `${jobname}.bbl`);
-  if (prebuilt && !existsSync(target)) await writeFile(target, bbl[0].content);
+  const written = prebuilt ? files.filter(f => !f.path.endsWith('.bib')) : files;
+  const extras = written.filter(f => f.path.includes('/') && /\.(sty|cls|clo|bst|bib)$/i.test(f.path)).map(f => ({ path: f.path.split('/').pop(), content: f.content }));
+  if (prebuilt) extras.push({ path: `${jobname}.bbl`, content: bbl[0].content });
+  return { files: written, extras: extras.filter((e, i) => !written.some(f => f.path === e.path) && extras.findIndex(x => x.path === e.path) === i) };
 }
 // Figures for LaTeX: notebook plots and uploaded PNG/JPG/PDF files, checked by path, size, and file signature.
 const figureSignatures = { png: '89504e470d0a1a0a', jpg: 'ffd8ff', jpeg: 'ffd8ff', pdf: '25504446' };
