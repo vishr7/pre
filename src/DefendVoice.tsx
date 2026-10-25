@@ -1,32 +1,41 @@
-
 import { useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
+import { AudioLines, LoaderCircle, Mic, ShieldCheck } from "lucide-react";
 
 function VoiceControls({ base }: { base: string }) {
   const conversation = useConversation();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [demoKey, setDemoKey] = useState("");
+  const connected = conversation.status === "connected";
+  const active = connected || conversation.status === "connecting" || loading;
+  const speaking = connected && conversation.isSpeaking;
+  const status = error || conversation.status === "error"
+    ? { label: "Error", tone: "error" }
+    : loading || conversation.status === "connecting"
+      ? { label: "Connecting", tone: "connecting" }
+      : speaking
+        ? { label: "Speaking", tone: "speaking" }
+        : connected
+          ? { label: "Connected", tone: "connected" }
+          : { label: "Disconnected", tone: "disconnected" };
 
   async function startDefense() {
     setError("");
 
     if (!demoKey.trim()) {
-      setError("Please enter the demo access key.");
+      setError("Enter the demo access key to start your voice defense.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
 
       // Use PRE's configured backend URL, or the local backend.
-      const apiBase =
-        base.trim().replace(/\/+$/, "") || "http://localhost:8000";
+      const apiBase = base.trim().replace(/\/+$/, "") || "http://localhost:8000";
 
       const response = await fetch(`${apiBase}/defend/signed-url`, {
         headers: {
@@ -51,46 +60,77 @@ function VoiceControls({ base }: { base: string }) {
         connectionType: "websocket",
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(
+        err instanceof Error
+          ? err.name === "NotAllowedError"
+            ? "Microphone access was denied. Allow microphone access in your browser settings and try again."
+            : err.message
+          : "Something went wrong while starting the conversation.",
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div>
-      <h3>PRE Defend — Voice Examiner</h3>
+    <section className={`defend-voice-card${active ? " is-active" : ""}${speaking ? " is-speaking" : ""}`} aria-labelledby="defend-voice-title">
+      <div className="defend-voice-topline">
+        <span className="defend-voice-kicker"><ShieldCheck size={14} aria-hidden="true" /> RESEARCH PRACTICE</span>
+        <span className={`defend-voice-status ${status.tone}`} role="status" aria-live="polite">
+          <span className="defend-voice-status-dot" aria-hidden="true" />{status.label}
+        </span>
+      </div>
 
-      <label>
-        Demo access key
-        <input
-          type="password"
-          autoComplete="off"
-          value={demoKey}
-          onChange={(event) => setDemoKey(event.target.value)}
-          placeholder="Enter demo access key"
-          disabled={loading || conversation.status !== "disconnected"}
-        />
-      </label>
+      <div className="defend-voice-intro">
+        <div className={`defend-voice-orb${active ? " active" : ""}${speaking ? " speaking" : ""}`} aria-hidden="true">
+          <span className="defend-voice-orb-halo" />
+          <span className="defend-voice-wave"><i /><i /><i /><i /><i /></span>
+          {speaking ? <AudioLines size={25} strokeWidth={1.8} /> : <Mic size={25} strokeWidth={1.8} />}
+        </div>
+        <div>
+          <h3 id="defend-voice-title">AI Voice Examiner</h3>
+          <p>Practice defending your research in a live conversation with an AI examiner.</p>
+        </div>
+      </div>
 
-      <p>Status: {conversation.status}</p>
+      <div className="defend-voice-actions">
+        <button
+          className="defend-voice-start"
+          onClick={startDefense}
+          disabled={loading || (conversation.status !== "disconnected" && conversation.status !== "error") || !!error}
+        >
+          {loading || conversation.status === "connecting" ? <LoaderCircle className="defend-voice-spinner" size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
+          {loading || conversation.status === "connecting" ? "Connecting…" : "Start Voice Defense"}
+        </button>
+        <button
+          className="defend-voice-end"
+          onClick={() => { void conversation.endSession(); }}
+          disabled={!connected}
+        >
+          End Conversation
+        </button>
+      </div>
 
-      <button
-        onClick={startDefense}
-        disabled={loading || conversation.status !== "disconnected"}
-      >
-        {loading ? "Starting..." : "Start Voice Defense"}
-      </button>
+      <div className="defend-voice-footer">
+        <label className="defend-voice-key" htmlFor="defend-demo-key">
+          <span>Demo access key</span>
+          <input
+            id="defend-demo-key"
+            type="password"
+            autoComplete="off"
+            value={demoKey}
+            onChange={(event) => { setDemoKey(event.target.value); setError(""); }}
+            placeholder="Enter access key"
+            disabled={active}
+          />
+        </label>
+        <span className="defend-voice-secure"><ShieldCheck size={12} aria-hidden="true" /> Secure session</span>
+      </div>
 
-      <button
-        onClick={() => conversation.endSession()}
-        disabled={conversation.status === "disconnected"}
-      >
-        End Conversation
-      </button>
-
-      {error && <p role="alert">{error}</p>}
-    </div>
+      {error && <p className="defend-voice-error" role="alert">{error}</p>}
+      {!error && conversation.status === "error" && conversation.message && <p className="defend-voice-error" role="alert">{conversation.message}</p>}
+      {!error && conversation.status === "connecting" && <p className="defend-voice-hint" role="status">Connecting to your examiner. This can take a few seconds.</p>}
+    </section>
   );
 }
 
