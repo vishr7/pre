@@ -27,7 +27,7 @@ import './scientific.css';
 import PdfPreview from './PdfPreview';
 import CellEditor from './CellEditor';
 import TerminalPanel from './TerminalPanel';
-import type { RemoteRunner } from './remoteRun';
+import { missingModuleHint, type RemoteRunner } from './remoteRun';
 import { Server } from 'lucide-react';
 import RepairReview, { type RepairState, type RepairProposal } from './RepairReview';
 import ReviewPanel, { type Review } from './ReviewPanel';
@@ -260,7 +260,7 @@ function App({ project, onHome, onSave }: { project: Project; onHome: () => void
      const result = await remoteRunner.current.run(cell.source, cell.type);
      const durationMs = Math.round(performance.now() - start);
      const error = result.cancelled ? 'Interrupted with Ctrl+C. See the terminal for any output.'
-       : result.exitCode ? `Exited with code ${result.exitCode} on the SSH machine.` : undefined;
+       : result.exitCode ? [`Exited with code ${result.exitCode} on the SSH machine.`, missingModuleHint(result.output)].filter(Boolean).join('\n\n') : undefined;
      cellResult(cell.id, { output: result.output.replace(/\n$/, ''), error, durationMs, status: error ? 'error' : 'success' });
    } catch (e) {
      cellResult(cell.id, { status: 'error', error: (e as Error).message });
