@@ -2,10 +2,13 @@ import { useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { AudioLines, LoaderCircle, Mic, ShieldCheck } from "lucide-react";
 
+type Examiner = "supportive" | "critical";
+
 function VoiceControls({ base }: { base: string }) {
   const conversation = useConversation();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [examiner, setExaminer] = useState<Examiner>("supportive");
   const connected = conversation.status === "connected";
   const active = connected || conversation.status === "connecting" || loading;
   const speaking = connected && conversation.isSpeaking;
@@ -31,11 +34,13 @@ function VoiceControls({ base }: { base: string }) {
       // Use PRE's configured backend URL, or the local backend.
       const apiBase = base.trim().replace(/\/+$/, "") || "http://localhost:8000";
 
-      const response = await fetch(`${apiBase}/defend/signed-url`);
+      const query = new URLSearchParams({ examiner });
+      const response = await fetch(`${apiBase}/defend/signed-url?${query}`);
 
       if (!response.ok) {
-        if (response.status === 500 || response.status === 503) {
-          throw new Error("ElevenLabs is not configured on the backend.");
+        if (response.status === 503) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "ElevenLabs is not configured on the backend.");
         }
         throw new Error(`Could not get signed URL (HTTP ${response.status}).`);
       }
@@ -78,6 +83,31 @@ function VoiceControls({ base }: { base: string }) {
           <h3 id="defend-voice-title">AI Voice Examiner</h3>
           <p>Practice defending your research in a live conversation with an AI examiner.</p>
         </div>
+      </div>
+
+      <div className="defend-examiner-picker" role="group" aria-label="Choose a voice examiner">
+        <button
+          type="button"
+          className={`defend-examiner-option${examiner === "supportive" ? " selected" : ""}`}
+          aria-pressed={examiner === "supportive"}
+          disabled={active}
+          onClick={() => setExaminer("supportive")}
+        >
+          <span className="defend-examiner-option-title">Supportive Professor</span>
+          <span className="defend-examiner-option-tone">Patient · Encouraging · Constructive</span>
+          <span className="defend-examiner-option-description">Build confidence while explaining your research, methodology, and findings.</span>
+        </button>
+        <button
+          type="button"
+          className={`defend-examiner-option${examiner === "critical" ? " selected" : ""}`}
+          aria-pressed={examiner === "critical"}
+          disabled={active}
+          onClick={() => setExaminer("critical")}
+        >
+          <span className="defend-examiner-option-title">Critical Reviewer</span>
+          <span className="defend-examiner-option-tone">Rigorous · Skeptical · Challenging</span>
+          <span className="defend-examiner-option-description">Defend your assumptions, evidence, methodology, and conclusions.</span>
+        </button>
       </div>
 
       <div className="defend-voice-actions">
