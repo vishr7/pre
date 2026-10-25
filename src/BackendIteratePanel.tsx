@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MutableRefObject } from 'react';
 import { formatMetric } from './scientific';
 import type { ProjectFile } from './api';
+import type { RemoteRunner } from './remoteRun';
 
 type Trial = {number:number;params:Record<string,unknown>;metrics:Record<string,number>;status:string;progress:Array<Record<string,number>>;error:string|null;seed:number;duration:number|null};
-type Study = {id:string;status:string;space:Space;remote:{session_id:string;project:string;venv:string|null;partition:string|null;account:string|null;conda_env:string|null}|null;parent_study:string|null;parent_trial:number|null;parent_params:Record<string,unknown>|null;trials:Trial[];best:Trial|null};
+type Study = {id:string;status:string;space:Space;remote:{session_id:string;project:string;venv:string|null;partition:string|null;account:string|null;conda_env:string|null}|null;via_terminal?:boolean;parent_study:string|null;parent_trial:number|null;parent_params:Record<string,unknown>|null;trials:Trial[];best:Trial|null};
 type Analysis = {importance:Record<string,number>;coordinates:Array<{number:number;params:Record<string,unknown>;score:number}>};
 type Connection = {session_id:string;status:string;prompts?:Array<{prompt:string;echo:boolean}>};
 type Space = {objective:{metric:string;direction:'minimize'|'maximize'};params:Record<string,unknown>;strategy:string;n_trials:number;parallel:number;timeout_seconds:number;seed:number};
@@ -15,7 +16,9 @@ async function api<T>(base:string,path:string,method='GET',body?:unknown):Promis
  return response.json();
 }
 
-export default function IteratePanel({base,files}:{base:string;files:ProjectFile[]}) {
+type Target='local'|'terminal'|'hpc';
+
+export default function BackendIteratePanel({base,files,runner}:{base:string;files:ProjectFile[];runner?:MutableRefObject<RemoteRunner|null>}) {
  const scripts=files.filter(file=>file.path.endsWith('.py'));
  const [scriptPath,setScriptPath]=useState(scripts[0]?.path||'');
  const [spaceText,setSpaceText]=useState(example);
@@ -24,28 +27,47 @@ export default function IteratePanel({base,files}:{base:string;files:ProjectFile
  const [suggestion,setSuggestion]=useState('');
  const [analysis,setAnalysis]=useState<Analysis|null>(null);
  const [logTrial,setLogTrial]=useState<number|null>(null);const [logs,setLogs]=useState<{stdout:string;stderr:string}|null>(null);
- const [useRemote,setUseRemote]=useState(false);const [sessionId,setSessionId]=useState('');const [username,setUsername]=useState('');const [password,setPassword]=useState('');const [challenge,setChallenge]=useState<Connection|null>(null);const [challengeAnswers,setChallengeAnswers]=useState<string[]>([]);
+ const [target,setTarget]=useState<Target>(()=>{try{const saved=localStorage.getItem('pre.iterate.target');return saved==='terminal'||saved==='hpc'?saved:'local';}catch{return 'local';}});const useRemote=target==='hpc';
+ useEffect(()=>{try{localStorage.setItem('pre.iterate.target',target);}catch{/* storage unavailable */}},[target]);const [sessionId,setSessionId]=useState('');const [username,setUsername]=useState('');const [password,setPassword]=useState('');const [challenge,setChallenge]=useState<Connection|null>(null);const [challengeAnswers,setChallengeAnswers]=useState<string[]>([]);
  const [remoteProject,setRemoteProject]=useState('iterate');const [remoteVenv,setRemoteVenv]=useState('');const [remotePartition,setRemotePartition]=useState('');const [remoteAccount,setRemoteAccount]=useState('');const [remoteConda,setRemoteConda]=useState('');
  const [working,setWorking]=useState(false);const [error,setError]=useState('');
- useEffect(()=>{if(!base)return;const id=localStorage.getItem('pre.iterate.study');if(id)void api<Study>(base,`/studies/${id}`).then(setStudy).catch(()=>localStorage.removeItem('pre.iterate.study'));},[base]);
+ // null = checking. With an empty Backend API URL, Vite forwards /iterate and /hpc to the Python backend.
+ const [backendUp,setBackendUp]=useState<boolean|null>(null);const [probe,setProbe]=useState(0);
+ useEffect(()=>{setBackendUp(null);let live=true;fetch(`${base.replace(/\/$/,'')}/iterate/health`).then(r=>r.ok?r.json():null).then(body=>{if(live)setBackendUp(body?.status==='ok');}).catch(()=>{if(live)setBackendUp(false);});return()=>{live=false;};},[base,probe]);
+ useEffect(()=>{if(!backendUp)return;const id=localStorage.getItem('pre.iterate.study');if(id)void api<Study>(base,`/studies/${id}`).then(setStudy).catch(()=>localStorage.removeItem('pre.iterate.study'));},[base,backendUp]);
  useEffect(()=>{if(study?.id)localStorage.setItem('pre.iterate.study',study.id);},[study?.id]);
- useEffect(()=>{if(study?.remote){setUseRemote(true);setSessionId(study.remote.session_id);setRemoteProject(study.remote.project);setRemoteVenv(study.remote.venv||'');setRemotePartition(study.remote.partition||'');setRemoteAccount(study.remote.account||'');setRemoteConda(study.remote.conda_env||'');}},[study?.id]);
+ useEffect(()=>{if(study?.via_terminal)setTarget('terminal');if(study?.remote){setTarget('hpc');setSessionId(study.remote.session_id);setRemoteProject(study.remote.project);setRemoteVenv(study.remote.venv||'');setRemotePartition(study.remote.partition||'');setRemoteAccount(study.remote.account||'');setRemoteConda(study.remote.conda_env||'');}},[study?.id]);
  useEffect(()=>{setAnalysis(null);if(study?.id&&study.status==='COMPLETED')void api<Analysis>(base,`/studies/${study.id}/analysis`).then(setAnalysis).catch(()=>{});},[base,study?.id,study?.status]);
  useEffect(()=>{if(!study?.id||logTrial===null)return;const read=()=>void api<{stdout:string;stderr:string}>(base,`/studies/${study.id}/trials/${logTrial}/logs`).then(setLogs).catch(()=>{});read();const timer=setInterval(read,3000);return()=>clearInterval(timer);},[base,study?.id,logTrial]);
  const metric=study?.space.objective.metric;
  const completed=useMemo(()=>study?.trials.filter(t=>t.status==='COMPLETED').sort((a,b)=>study.space.objective.direction==='minimize'?a.metrics[study.space.objective.metric]-b.metrics[study.space.objective.metric]:b.metrics[study.space.objective.metric]-a.metrics[study.space.objective.metric])||[],[study]);
- useEffect(()=>{if(!base||!study?.id||!['RUNNING','STOPPING'].includes(study.status))return;
-  let socket:WebSocket|undefined;try{const url=new URL(base);url.protocol=url.protocol==='https:'?'wss:':'ws:';url.pathname=`${url.pathname.replace(/\/$/,'')}/iterate/studies/${study.id}/live`;socket=new WebSocket(url);socket.onmessage=event=>{try{setStudy(JSON.parse(event.data));}catch{/* Keep last valid update. */}};}catch{/* Polling remains available. */}
+ useEffect(()=>{if(!backendUp||!study?.id||!['RUNNING','STOPPING'].includes(study.status))return;
+  let socket:WebSocket|undefined;try{const url=new URL(base||'/',window.location.href);url.protocol=url.protocol==='https:'?'wss:':'ws:';url.pathname=`${url.pathname.replace(/\/$/,'')}/iterate/studies/${study.id}/live`;socket=new WebSocket(url);socket.onmessage=event=>{try{setStudy(JSON.parse(event.data));}catch{/* Keep last valid update. */}};}catch{/* Polling remains available. */}
   const timer=setInterval(()=>{void api<Study>(base,`/studies/${study.id}`).then(setStudy).catch(e=>setError(e.message));},3000);
   return()=>{clearInterval(timer);socket?.close();};
  },[base,study?.id,study?.status]);
+ // Terminal studies: the browser takes each waiting trial, runs it in the SSH tab, and posts the output back.
+ useEffect(()=>{if(!backendUp||!study?.id||!study.via_terminal||!['RUNNING','STOPPING'].includes(study.status))return;
+  let live=true;const id=study.id;
+  void (async()=>{while(live){
+   let job:{number:number;code:string}|null=null;
+   try{job=await api<{number:number;code:string}|null>(base,`/studies/${id}/terminal/next`);}catch{/* retry below */}
+   if(!job){await new Promise(r=>setTimeout(r,1000));continue;}
+   let result:{exit_code:number|null;output:string};
+   try{if(!runner?.current)throw new Error('Open the terminal and connect with SSH first.');const value=await runner.current.run(job.code,'python');result={exit_code:value.exitCode,output:value.output};}
+   catch(e){result={exit_code:null,output:(e as Error).message};}
+   await api(base,`/studies/${id}/terminal/${job.number}`,'POST',result).catch(()=>{});
+  }})();
+  return()=>{live=false;};
+ },[base,backendUp,study?.id,study?.status,study?.via_terminal]);
  async function connectHpc(answer=false){setWorking(true);setError('');try{const response=await fetch(`${base.replace(/\/$/,'')}/hpc/${answer?`connect/${challenge?.session_id}/respond`:'connect'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(answer?{responses:challengeAnswers}:{username,password})});const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:JSON.stringify(value.detail));setPassword('');setChallengeAnswers([]);if(value.status==='connected'){setSessionId(value.session_id);setChallenge(null);}else{setChallenge(value);setChallengeAnswers((value.prompts||[]).map(()=>''));}}catch(e){setError((e as Error).message);}finally{setWorking(false);}}
  async function start(){
   setError('');const script=files.find(f=>f.path===scriptPath)?.content;
   if(!script){setError('Choose a Python project file.');return;}
   let space:Space;try{space=JSON.parse(spaceText);}catch{setError('Search space must be valid JSON.');return;}
   if(useRemote&&!sessionId){setError('Connect an HPC session or enter its session ID.');return;}
-  const proposal={script,space,...(useRemote?{remote:{session_id:sessionId,project:remoteProject,venv:remoteVenv||null,partition:remotePartition||null,account:remoteAccount||null,conda_env:remoteConda||null}}:{}),...(parent?{parent_study:parent.study,parent_trial:parent.trial}:{})};
+  if(target==='terminal'&&!runner?.current){setError('Open the terminal and connect with SSH first.');return;}
+  const proposal={script,space,...(target==='terminal'?{via_terminal:true}:{}),...(useRemote?{remote:{session_id:sessionId,project:remoteProject,venv:remoteVenv||null,partition:remotePartition||null,account:remoteAccount||null,conda_env:remoteConda||null}}:{}),...(parent?{parent_study:parent.study,parent_trial:parent.trial}:{})};
   setWorking(true);
   try{
    const preview=await api<{digest:string;trials:number;parallel:number;execution:string}>(base,'/preview','POST',proposal);
@@ -66,14 +88,14 @@ export default function IteratePanel({base,files}:{base:string;files:ProjectFile
  const scores=analysis?.coordinates.map(c=>c.score)||[];const scoreLow=Math.min(...scores),scoreHigh=Math.max(...scores);
  const coordinateY=(name:string,value:unknown)=>{const spec=study?.space.params[name] as {type?:string;low?:number;high?:number;choices?:unknown[]}|undefined;if(!spec)return 100;if(spec.type==='categorical'){const index=(spec.choices||[]).findIndex(choice=>choice===value);return 100-80*index/Math.max(1,(spec.choices||[]).length-1);}return 100-80*(Number(value)-Number(spec.low))/(Number(spec.high)-Number(spec.low)||1);};
  return <div className="tool-workspace science-tool iterate-tool"><div className="tool-eyebrow">PRE ITERATE</div><h2>Optimize an experiment</h2><p className="science-lead">Choose a Python script, define a JSON search space, review the run, and inspect measured trials. The script must accept parameter flags and <code>--out</code>, then write <code>metrics.json</code> there. It may print JSON lines with an epoch and objective metric for live curves.</p>
-  {!base&&<div className="science-unavailable"><p>Set the Backend API URL in Settings to the running PRE Python backend to use Iterate.</p></div>}
-  <section className="iterate-remote"><label className="iterate-toggle"><input type="checkbox" checked={useRemote} onChange={event=>setUseRemote(event.target.checked)}/> Run on connected SSH/SLURM session</label>{useRemote&&<>
+  {backendUp===false&&<div className="science-unavailable"><p>Iterate needs the PRE Python backend. From the project folder run <code>backend/.venv/Scripts/uvicorn backend.main:app --port 8000</code> (macOS/Linux: <code>backend/.venv/bin/uvicorn</code>), keep the Backend API URL empty, then <button onClick={()=>setProbe(n=>n+1)}>check again</button>.</p></div>}
+  <section className="iterate-remote"><fieldset className="iterate-target"><legend>Run trials on</legend><label><input type="radio" name="iterate-target" checked={target==='local'} onChange={()=>setTarget('local')}/> This computer</label><label><input type="radio" name="iterate-target" checked={target==='terminal'} onChange={()=>setTarget('terminal')}/> SSH terminal (uses the terminal's login)</label><label><input type="radio" name="iterate-target" checked={target==='hpc'} onChange={()=>setTarget('hpc')}/> HPC service (separate login, GPUs/SLURM)</label></fieldset>{target==='terminal'&&<p className="science-muted">Trials run one at a time in the active terminal tab{runner?.current?` (“${runner.current.activeTitle()}”)`:''} with its Python interpreter. Connect with SSH ▾ in the terminal first and keep PRE open while the study runs. Files go to <code>~/pre-iterate/</code> on that machine.</p>}{useRemote&&<>
    <label>HPC session ID<input className="science-input" value={sessionId} onChange={e=>setSessionId(e.target.value)} placeholder="Existing connected session ID"/></label>
-   <p>Connect to the configured HPC host:</p><div className="iterate-connect"><input className="science-input" aria-label="SSH username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Username"/><input className="science-input" type="password" aria-label="SSH password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/><button disabled={!base||!username||!password||working} onClick={()=>void connectHpc()}>Connect</button></div>
+   <p>Connect to the configured HPC host:</p><div className="iterate-connect"><input className="science-input" aria-label="SSH username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Username"/><input className="science-input" type="password" aria-label="SSH password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/><button disabled={!backendUp||!username||!password||working} onClick={()=>void connectHpc()}>Connect</button></div>
    {challenge&&<div className="science-feedback"><div>{(challenge.prompts||[]).map((prompt,index)=><label key={index}>{prompt.prompt}<input className="science-input" type={prompt.echo?'text':'password'} value={challengeAnswers[index]||''} onChange={event=>setChallengeAnswers(current=>current.map((value,i)=>i===index?event.target.value:value))}/></label>)}</div><button disabled={challengeAnswers.some(value=>!value)||working} onClick={()=>void connectHpc(true)}>Respond</button></div>}
    <label>Remote project<input className="science-input" value={remoteProject} onChange={e=>setRemoteProject(e.target.value)}/></label><label>Workstation venv (optional)<input className="science-input" value={remoteVenv} onChange={e=>setRemoteVenv(e.target.value)}/></label><label>SLURM partition (optional)<input className="science-input" value={remotePartition} onChange={e=>setRemotePartition(e.target.value)}/></label><label>SLURM account (optional)<input className="science-input" value={remoteAccount} onChange={e=>setRemoteAccount(e.target.value)}/></label><label>SLURM conda env (optional)<input className="science-input" value={remoteConda} onChange={e=>setRemoteConda(e.target.value)}/></label>
   </>}</section>
-  <div className="science-request"><label htmlFor="iterate-script">Experiment script</label><select className="science-input" id="iterate-script" value={scriptPath} onChange={e=>setScriptPath(e.target.value)}><option value="">Choose a Python file</option>{scripts.map(file=><option key={file.path} value={file.path}>{file.path}</option>)}</select><label htmlFor="iterate-space">Search space JSON</label><textarea id="iterate-space" value={spaceText} onChange={e=>setSpaceText(e.target.value)} spellCheck={false}/>{suggestion&&<div className="science-feedback"><strong>Suggested next round</strong><p>{suggestion}</p><p>Review and edit the JSON above before approving a new study.</p></div>}{parent&&<div className="science-feedback">Branching from trial {parent.trial} of {parent.study}. Edit the search space before starting; the parent configuration will run first when it fits the new space. <button onClick={()=>setParent(null)}>Clear branch</button></div>}<button className="primary-btn" disabled={!base||!scriptPath||working} onClick={()=>void start()}>{working?'Preparing study…':'Review and start study'}</button></div>
+  <div className="science-request"><label htmlFor="iterate-script">Experiment script</label><select className="science-input" id="iterate-script" value={scriptPath} onChange={e=>setScriptPath(e.target.value)}><option value="">Choose a Python file</option>{scripts.map(file=><option key={file.path} value={file.path}>{file.path}</option>)}</select><label htmlFor="iterate-space">Search space JSON</label><textarea id="iterate-space" value={spaceText} onChange={e=>setSpaceText(e.target.value)} spellCheck={false}/>{suggestion&&<div className="science-feedback"><strong>Suggested next round</strong><p>{suggestion}</p><p>Review and edit the JSON above before approving a new study.</p></div>}{parent&&<div className="science-feedback">Branching from trial {parent.trial} of {parent.study}. Edit the search space before starting; the parent configuration will run first when it fits the new space. <button onClick={()=>setParent(null)}>Clear branch</button></div>}<button className="primary-btn" disabled={!backendUp||!scriptPath||working} onClick={()=>void start()}>{working?'Preparing study…':'Review and start study'}</button></div>
   {error&&<div role="alert" className="science-feedback is-error">{error}</div>}
   {study&&<section className="science-results"><header className="science-result-heading"><div><span className="science-eyebrow">STUDY {study.id.slice(0,8)}</span><h3>{study.status.toLowerCase()}</h3></div><div>{study.status==='RUNNING'&&<button className="outline-btn" onClick={()=>void api<Study>(base,`/studies/${study.id}/stop`,'POST').then(setStudy).catch(e=>setError(e.message))}>Stop after active trials</button>}{completed.length>=2&&<button className="outline-btn" disabled={working} onClick={()=>void suggest()}>Suggest next round</button>}{study.best&&study.status==='COMPLETED'&&<button className="outline-btn" onClick={confirmBest}>Repeat best ×3</button>}</div></header><p className="science-muted">{study.trials.length} of {study.space.n_trials} trials recorded · {completed.length} completed · {study.trials.filter(t=>t.status==='FAILED').length} failed</p><progress value={study.trials.filter(t=>t.status!=='RUNNING').length} max={study.space.n_trials}/>
    {study.best&&<div className="science-metrics"><article className="science-metric"><span>Best {metric}</span><strong>{formatMetric(study.best.metrics[metric!])}</strong><small>Trial {study.best.number}</small></article><article className="science-metric"><span>Best parameters</span><code>{JSON.stringify(study.best.params)}</code></article></div>}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { evaluate, matchesClaim, checkCalculations, checkNumbers, arithmeticScore } from './ai/number-check.mjs';
+import { evaluate, matchesClaim, checkCalculations, checkNumbers, arithmeticScore, auditCalculations, correctedValue } from './ai/number-check.mjs';
 import { mergeNumberChecks } from './ai/review.mjs';
 const paper = readFileSync(new URL('../samples/litetune_paper.tex', import.meta.url), 'utf8');
 const calc = (quote, expression, claimed_value, comparison = 'equals') => ({ quote, description: 'test', expression, claimed_value, comparison });
@@ -60,4 +60,38 @@ test('Arithmetic score reflects the share of correct calculations',()=>{
  const review={summary:'s',scores:{methodology:3,novelty:3,clarity:3,reproducibility:3},comments:[],action_items:[]};
  assert.equal(mergeNumberChecks(review,null).scores.arithmetic,null); // audit failed
  assert.equal(mergeNumberChecks(review,{checked:3,comments:[]}).scores.arithmetic,5);
+});
+// A different, made-up clinical paper so the clean-up rules are not tuned to LiteTune.
+const clinical = `\\begin{abstract}
+We enrolled 240 patients and the response rate improved from 40\\% to 50\\%, a 50\\% relative improvement.
+\\end{abstract}
+\\section{Methods}
+Patients were split into 120 treatment and 100 control participants.
+\\section{Results}
+Response improved from 40\\% to 50\\%, which is a 50\\% relative improvement and proves the drug works for every disease.
+Mean recovery time fell to 12.4 days.
+`;
+const relative = (quote) => calc(quote, '(50 - 40) / 40 * 100', '50');
+test('Same calculation stated twice gets one comment per place, each pointing to the other',()=>{
+ const {comments}=auditCalculations(clinical,[relative('a 50\\% relative improvement'),relative('which is a 50\\% relative improvement'),relative('which is a 50\\% relative improvement')]);
+ assert.equal(comments.length,2); // the repeated item at the same spot is reported once
+ assert.match(comments[0].comment,/also stated in Results/);assert.match(comments[1].comment,/also stated in Abstract/);
+});
+test('Corrected values follow the precision the paper uses',()=>{
+ assert.equal(correctedValue(83.9667,'85.3'),'84.0 (exactly 83.97)');
+ assert.equal(correctedValue(2.25,'3'),'2.25');
+ assert.equal(correctedValue(12500,'12,000'),'12,500');
+ assert.equal(correctedValue(12.4,'12.0'),'12.4');
+ assert.match(auditCalculations(clinical,[calc('We enrolled 240 patients','120 + 100','240')]).comments[0].suggestion,/to 220,/);
+});
+test('Reviewer number comments on checked passages are dropped, other categories are kept',()=>{
+ const audit=auditCalculations(clinical,[relative('which is a 50\\% relative improvement')]);
+ const reviewer={summary:'s',scores:{methodology:3,novelty:3,clarity:3,reproducibility:3},comments:[
+  {id:'c1',section:'Results',quote:'Response improved from 40\\% to 50\\%, which is a 50\\% relative improvement',category:'inconsistent_metric',severity:'critical',comment:'Should be 25%.',suggestion:'x'},
+  {id:'c2',section:'Results',quote:'proves the drug works for every disease',category:'unsupported_claim',severity:'critical',comment:'Overclaim.',suggestion:'y'},
+  {id:'c3',section:'Results',quote:'Mean recovery time fell to 12.4 days.',category:'inconsistent_metric',severity:'minor',comment:'No baseline given.',suggestion:'z'}],
+  action_items:[{id:'a1',title:'Fix the relative improvement',description:'d',related_comment_ids:['c1']},{id:'a2',title:'Tone down claims',description:'d',related_comment_ids:['c2']},{id:'a3',title:'General polish',description:'d',related_comment_ids:[]}]};
+ const merged=mergeNumberChecks(reviewer,audit,clinical);
+ assert.deepEqual(merged.comments.map(c=>c.id),['c2','m1','c3']); // c1 duplicated the verified check; c3 is about another sentence
+ assert.deepEqual(merged.action_items.map(a=>a.id),['a2','a3','a4']); // a1 lost its only comment; new id does not collide
 });

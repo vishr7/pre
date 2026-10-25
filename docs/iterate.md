@@ -1,6 +1,6 @@
 # Iterate studies
 
-Iterate runs trusted Python scripts locally or through a connected PRE HPC session. Install `backend/requirements.txt`, start `uvicorn backend.main:app` from the repository root, and set the app's Backend API URL to that server. The server must stay private to the researcher. The local runner is a subprocess, not a sandbox for untrusted code.
+Iterate runs trusted Python scripts locally or through a connected PRE HPC session. Install `backend/requirements.txt`, start `uvicorn backend.main:app --port 8000` from the repository root, and run the app with `npm run dev`. Leave the Backend API URL empty: the dev server forwards `/iterate` and `/hpc` (including WebSockets) to `http://127.0.0.1:8000`, or to `PRE_BACKEND_URL` if set, while compile, cells, and review keep using the built-in runtime. The server must stay private to the researcher. The local runner is a subprocess, not a sandbox for untrusted code.
 
 Create a `.py` project file that accepts each search parameter as a command line flag and accepts `--out`. It must write a finite numeric objective to `<out>/metrics.json`; other JSON metadata may accompany it. Optionally print one JSON object per epoch with `epoch` and the objective metric; Iterate streams these for live curves and Optuna median pruning. Read `PRE_TRIAL_SEED` from the environment and seed all training libraries with it.
 

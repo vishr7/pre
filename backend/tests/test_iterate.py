@@ -131,3 +131,43 @@ def test_slurm_trial_uses_same_ask_tell_path(tmp_path, monkeypatch):
     assert result["status"] == "COMPLETED", result["trials"][0]["error"]
     assert result["best"]["metrics"]["final_accuracy"] > 0
     assert "pre-projects" in result["trials"][0]["run_dir"]
+
+
+def test_terminal_trials_run_through_the_browser_relay(tmp_path, monkeypatch):
+    """The browser asks for each trial, runs its code in the SSH terminal, and posts the output back."""
+    import subprocess
+    monkeypatch.setattr(iterate, "ROOT", tmp_path / "data")
+    for name in ("HOME", "USERPROFILE"):  # where ~/pre-iterate lands on the "remote" machine
+        monkeypatch.setenv(name, str(tmp_path / "remote-home"))
+    item = proposal().model_copy(update={"via_terminal": True})
+    assert iterate.preview(item)["parallel"] == 1
+    async def browser(study_id):
+        while study_id in iterate.TASKS:
+            job = iterate.terminal_next(study_id)
+            if job is None:
+                await asyncio.sleep(0.05)
+                continue
+            assert iterate.terminal_next(study_id) is None  # claimed once
+            run = await asyncio.to_thread(subprocess.run, [sys.executable, "-c", job["code"]], capture_output=True, text=True)
+            iterate.terminal_result(study_id, job["number"], iterate.TerminalResult(exit_code=run.returncode, output=run.stdout + run.stderr))
+    async def scenario():
+        response = await iterate.start(iterate.StartRequest(**item.model_dump(), approval_digest=iterate.digest(item)))
+        relay = asyncio.create_task(browser(response["id"]))
+        await iterate.TASKS[response["id"]]
+        await relay
+        return iterate.study_view(response["id"])
+    result = asyncio.run(scenario())
+    assert result["status"] == "COMPLETED", result["trials"]
+    assert result["via_terminal"] is True
+    assert sorted(t["metrics"]["score"] for t in result["trials"]) == [1.0, 2.0, 3.0]
+    assert all(t["progress"] for t in result["trials"])
+    assert (tmp_path / "remote-home" / "pre-iterate" / result["id"][:8] / "trial_0" / "metrics.json").is_file()
+    assert "__PRE_ITERATE_METRICS__" not in (tmp_path / "data" / result["id"] / "trial_0" / "stdout.log").read_text()
+
+
+def test_terminal_output_parsing_strips_the_metrics_marker(tmp_path, monkeypatch):
+    monkeypatch.setattr(iterate, "ROOT", tmp_path)
+    space = proposal().space
+    progress = []
+    metrics, output = iterate.parse_terminal_output("hello\r\n__PRE_ITERATE_METRICS__ {\"score\": 2}\n", space, progress)
+    assert metrics == {"score": 2} and "METRICS" not in output and progress == []

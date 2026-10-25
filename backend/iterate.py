@@ -28,6 +28,10 @@ ROOT = Path(__file__).resolve().parent / "data" / "iterate"
 router = APIRouter(prefix="/iterate", tags=["iterate"])
 TASKS: dict[str, asyncio.Task] = {}
 SUBSCRIBERS: dict[str, set[WebSocket]] = {}
+# Terminal trials: the browser runs them in the user's SSH terminal tab and posts the output back.
+TERMINAL_JOBS: dict[str, dict[int, dict]] = {}
+TERMINAL_RESULTS: dict[tuple[str, int], asyncio.Future] = {}
+METRICS_MARKER = "__PRE_ITERATE_METRICS__"
 
 
 class Parameter(BaseModel):
@@ -84,6 +88,7 @@ class Proposal(BaseModel):
     script: str = Field(min_length=1, max_length=200_000)
     space: Space
     remote: "RemoteConfig | None" = None
+    via_terminal: bool = False
     parent_study: str | None = None
     parent_trial: int | None = None
 
@@ -98,6 +103,11 @@ class RemoteConfig(BaseModel):
 
 
 Proposal.model_rebuild()
+
+
+class TerminalResult(BaseModel):
+    exit_code: int | None = None
+    output: str = Field(default="", max_length=2_000_000)
 
 
 class StartRequest(Proposal):
@@ -141,7 +151,7 @@ def study_view(study_id):
     metric, direction = spec["space"]["objective"]["metric"], spec["space"]["objective"]["direction"]
     completed = [row for row in trials if row["status"] == "COMPLETED"]
     best = min(completed, key=lambda x: x["metrics"][metric]) if completed and direction == "minimize" else max(completed, key=lambda x: x["metrics"][metric]) if completed else None
-    return {"id": study_id, "status": study["status"], "space": spec["space"], "remote": spec.get("remote"), "parent_study": study["parent_study"], "parent_trial": study["parent_trial"], "parent_params": json.loads(parent_row["params"]) if parent_row else None, "trials": trials, "best": best}
+    return {"id": study_id, "status": study["status"], "space": spec["space"], "remote": spec.get("remote"), "via_terminal": spec.get("via_terminal", False), "parent_study": study["parent_study"], "parent_trial": study["parent_trial"], "parent_params": json.loads(parent_row["params"]) if parent_row else None, "trials": trials, "best": best}
 
 
 async def publish(study_id):
@@ -241,7 +251,7 @@ async def remote_trial(study_id, trial, params, space, script, remote, slot, see
     deadline = time.monotonic() + space.timeout_seconds + 30
     state = "FAILED"
     try:
-        with (run_dir / "stdout.log").open("w", encoding="utf-8") as output:
+        with (run_dir / "stdout.log").open("w", encoding="utf-8", newline="") as output:  # keep line endings as received
             while True:
                 chunk = await conn.read_from(log_path, offset)
                 if chunk:
@@ -311,7 +321,9 @@ async def execute_trial(study_id, trial, params, space, script_hash, slot, paren
     await publish(study_id)
     progress, error, metrics, state = [], None, None, "FAILED"
     try:
-        if proposal.remote:
+        if proposal.via_terminal:
+            state, metrics, error = await terminal_trial(study_id, trial, params, space, proposal.script, seed, run_dir, progress)
+        elif proposal.remote:
             state, metrics, error = await remote_trial(study_id, trial, params, space, proposal.script, proposal.remote, slot, seed, run_dir, progress)
         else:
             state, metrics, error = await local_trial(trial, params, space, slot, seed, run_dir, progress, study_id)
@@ -325,6 +337,82 @@ async def execute_trial(study_id, trial, params, space, script_hash, slot, paren
     return state, metrics
 
 
+def terminal_code(study_id, number, script, args, seed, timeout):
+    """Python run by the terminal's remote interpreter: runs train.py in its own folder, then prints metrics."""
+    import base64
+    folder = f"~/pre-iterate/{study_id[:8]}/trial_{number}"
+    return f"""import base64, json, os, subprocess, sys
+d = os.path.expanduser({json.dumps(folder)})
+os.makedirs(d, exist_ok=True)
+p = os.path.join(d, "train.py")
+with open(p, "wb") as f:
+    f.write(base64.b64decode({json.dumps(base64.b64encode(script.encode()).decode())}))
+env = dict(os.environ, PRE_TRIAL_SEED={json.dumps(str(seed))}, PYTHONUNBUFFERED="1")
+try:
+    code = subprocess.run([sys.executable, p, *{json.dumps(args)}, "--out", d], cwd=d, env=env, timeout={timeout}).returncode
+except subprocess.TimeoutExpired:
+    print("Trial time limit reached", file=sys.stderr)
+    code = 124
+try:
+    with open(os.path.join(d, "metrics.json")) as f:
+        print({json.dumps(METRICS_MARKER)}, json.dumps(json.load(f)))
+except (OSError, ValueError):
+    pass
+sys.exit(code)
+"""
+
+
+def parse_terminal_output(output, space, progress):
+    metrics, lines = None, []
+    for line in output.replace("\r", "").split("\n"):
+        if line.startswith(METRICS_MARKER):
+            try:
+                metrics = json.loads(line[len(METRICS_MARKER):])
+            except ValueError:
+                pass
+            continue
+        lines.append(line)
+        try:
+            point = json.loads(line)
+            value = point.get(space.objective["metric"]) if isinstance(point, dict) else None
+            if len(progress) < 1000 and isinstance(point.get("epoch"), int) and isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                progress.append(point)
+        except (ValueError, AttributeError):
+            pass
+    return metrics, "\n".join(lines)
+
+
+async def terminal_trial(study_id, trial, params, space, script, seed, run_dir, progress):
+    args = []
+    for name, value in params.items():
+        args.extend((f"--{name}", str(value)))
+    future = asyncio.get_running_loop().create_future()
+    TERMINAL_RESULTS[(study_id, trial.number)] = future
+    TERMINAL_JOBS.setdefault(study_id, {})[trial.number] = {
+        "number": trial.number, "claimed": False,
+        "code": terminal_code(study_id, trial.number, script, args, seed, space.timeout_seconds)}
+    await publish(study_id)
+    try:
+        # Extra minute: the browser has to pick the trial up and the terminal may be slow.
+        result = await asyncio.wait_for(future, space.timeout_seconds + 60)
+    except asyncio.TimeoutError:
+        return "FAILED", None, "No result from the terminal. Keep PRE open with the terminal logged in over SSH."
+    finally:
+        TERMINAL_JOBS.get(study_id, {}).pop(trial.number, None)
+        TERMINAL_RESULTS.pop((study_id, trial.number), None)
+    metrics, output = parse_terminal_output(result.output, space, progress)
+    (run_dir / "stdout.log").write_text(output, encoding="utf-8")
+    if result.exit_code != 0:
+        tail = [line for line in output.splitlines() if line.strip()]
+        detail = f": {tail[-1].strip()}" if tail else ""
+        return "FAILED", None, (f"Script exited with code {result.exit_code}" if result.exit_code is not None else "Terminal run failed") + detail
+    if metrics is None:
+        return "FAILED", None, "Script finished but did not write metrics.json to the --out folder"
+    if not valid_metrics(metrics, space.objective["metric"]):
+        return "FAILED", None, "metrics.json needs a finite numeric objective and valid JSON metrics"
+    return "COMPLETED", metrics, None
+
+
 async def local_trial(trial, params, space, slot, seed, run_dir, progress, study_id):
     process = None
     state, metrics, error = "FAILED", None, None
@@ -333,7 +421,10 @@ async def local_trial(trial, params, space, slot, seed, run_dir, progress, study
         args.extend((f"--{name}", str(value)))
     args.extend(("--out", str(run_dir)))
     try:
-        inherited = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "LC_ALL", "VIRTUAL_ENV"}
+        # Non-secret basics only (no API keys); Windows tools and getpass need the user/OS names too.
+        inherited = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "LC_ALL", "VIRTUAL_ENV",
+                     "USER", "USERNAME", "LOGNAME", "HOMEDRIVE", "HOMEPATH", "SYSTEMDRIVE", "COMSPEC", "PATHEXT",
+                     "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE"}
         env = {key: value for key, value in os.environ.items() if key.upper() in inherited}
         env["PYTHONUNBUFFERED"] = "1"
         env["PRE_TRIAL_SEED"] = str(seed)
@@ -341,7 +432,7 @@ async def local_trial(trial, params, space, slot, seed, run_dir, progress, study
         stderr_file = (run_dir / "stderr.log").open("wb")
         process = await asyncio.create_subprocess_exec(*args, cwd=run_dir, env=env, stdout=asyncio.subprocess.PIPE, stderr=stderr_file)
         deadline = time.monotonic() + space.timeout_seconds
-        with (run_dir / "stdout.log").open("w", encoding="utf-8") as log:
+        with (run_dir / "stdout.log").open("w", encoding="utf-8", newline="") as log:  # child output is already \r\n on Windows
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -370,7 +461,11 @@ async def local_trial(trial, params, space, slot, seed, run_dir, progress, study
         await asyncio.wait_for(process.wait(), max(0.01, deadline-time.monotonic()))
         if state != "PRUNED":
             if process.returncode != 0:
-                error = f"Script exited with code {process.returncode}"
+                stderr_file.close()
+                tail = [line for line in (run_dir / "stderr.log").read_text("utf-8", "replace").splitlines() if line.strip()]
+                error = f"Script exited with code {process.returncode}" + (f": {tail[-1].strip()}" if tail else "")
+            elif not (run_dir / "metrics.json").is_file():
+                raise ValueError("Script finished but did not write metrics.json to the --out folder")
             else:
                 metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
                 if not valid_metrics(metrics, space.objective["metric"]):
@@ -425,7 +520,9 @@ async def _run_study(study_id, proposal):
             queued += 1
     script_hash = hashlib.sha256(proposal.script.encode()).hexdigest()
     (ROOT / study_id / "train.py").write_text(proposal.script, encoding="utf-8")
-    if proposal.remote:
+    if proposal.via_terminal:
+        slots = [0]  # one terminal runs one command at a time
+    elif proposal.remote:
         manager = hpc_manager()
         record, conn = await manager.connection(proposal.remote.session_id)
         if manager.compute.name == "workstation":
@@ -523,9 +620,15 @@ async def suggest_next_round(study_id: str):
     return {"summary": summary, "proposal": proposed.model_dump(), "requires_approval": True}
 
 
+@router.get("/health")
+def health():
+    """Lets the Iterate screen tell 'backend not running' apart from other errors."""
+    return {"status": "ok"}
+
+
 @router.post("/preview")
 def preview(proposal: Proposal):
-    return {"digest": digest(proposal), "trials": proposal.space.n_trials, "parallel": proposal.space.parallel, "execution": "connected HPC job" if proposal.remote else "trusted local Python subprocess"}
+    return {"digest": digest(proposal), "trials": proposal.space.n_trials, "parallel": 1 if proposal.via_terminal else proposal.space.parallel, "execution": "your SSH terminal session" if proposal.via_terminal else "connected HPC job" if proposal.remote else "trusted local Python subprocess"}
 
 
 @router.post("/studies")
@@ -533,6 +636,8 @@ async def start(request: StartRequest):
     proposal = Proposal.model_validate(request.model_dump(exclude={"approval_digest"}))
     if request.approval_digest != digest(proposal):
         raise HTTPException(409, "Proposal changed since approval")
+    if proposal.via_terminal and proposal.remote:
+        raise HTTPException(422, "Choose either the terminal or an HPC session, not both")
     if proposal.remote:
         await hpc_manager().connection(proposal.remote.session_id)
     if proposal.parent_study is not None:
@@ -584,6 +689,25 @@ def trial_logs(study_id: str, number: int):
         else:
             logs[name] = ""
     return logs
+
+
+@router.get("/studies/{study_id}/terminal/next")
+def terminal_next(study_id: str):
+    """Hands the browser the next trial to run in its SSH terminal, or null when none is waiting."""
+    for job in TERMINAL_JOBS.get(study_id, {}).values():
+        if not job["claimed"]:
+            job["claimed"] = True
+            return {"number": job["number"], "code": job["code"]}
+    return None
+
+
+@router.post("/studies/{study_id}/terminal/{number}")
+def terminal_result(study_id: str, number: int, result: TerminalResult):
+    future = TERMINAL_RESULTS.get((study_id, number))
+    if future is None or future.done():
+        raise HTTPException(404, "That trial is not waiting for a terminal result")
+    future.set_result(result)
+    return {"ok": True}
 
 
 @router.post("/studies/{study_id}/stop")

@@ -333,6 +333,11 @@ class WorkstationBackend(ComputeBackend):
         pid = pid_fields[0] if pid_fields else record.pid
         started = pid_fields[1] if len(pid_fields) > 1 else None
         exit_code = ended = None
+        alive = await self._alive(conn, pid) if pid and not exit_fields else False
+        if pid and not exit_fields and not alive:
+            # The process may finish after the first exit-file read. Re-read
+            # after observing its exit before classifying it as lost.
+            exit_fields = _fields(await _read_small(conn, f"{wd}/exit_code"))
 
         if exit_fields:
             exit_code = exit_fields[0]
@@ -343,7 +348,7 @@ class WorkstationBackend(ComputeBackend):
                 state, raw = JobState.CANCELLED, "CANCELLED"
             else:
                 state, raw = JobState.FAILED, "TIMEOUT" if exit_code == 124 else "FAILED"
-        elif pid and await self._alive(conn, pid):
+        elif alive:
             state, raw = JobState.RUNNING, "RUNNING"
         elif pid_line:
             # Process is gone without writing exit_code (SIGKILL, reboot, ...).
