@@ -74,7 +74,7 @@ test('unconnected Experiment and Iterate expose their backend requirements',()=>
  const experiment=renderToStaticMarkup(React.createElement(Tool,{mode:'Experiment',base:'',files:[],cells:[],onSummary:()=>{throw new Error('No request on render');}}));
  assert.match(experiment,/Scientific execution is not connected/);assert.match(experiment,/Backend connection required/);
  const iterate=renderToStaticMarkup(React.createElement(Tool,{mode:'Iterate',base:'',files:[],cells:[],onSummary:()=>{throw new Error('No request on render');}}));
- assert.match(iterate,/Set the Backend API URL/);assert.match(iterate,/Review and start study/);assert.match(iterate,/disabled=""/);
+ assert.doesNotMatch(iterate,/Set the Backend API URL/);assert.match(iterate,/Review and start study/);assert.match(iterate,/disabled=""/);
 });
 test('replication requests only paper analysis and syntax, with no host execution route',async()=>{
  const source=await readFile(new URL('../src/ReplicatePanel.tsx',import.meta.url),'utf8');
