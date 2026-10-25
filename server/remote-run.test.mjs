@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { RemoteCapture, cleanTerminalText, remoteRunCommand, validInterpreter } from '../src/remoteRun.ts';
+import { RemoteCapture, cleanTerminalText, missingModuleHint, remoteRunCommand, validInterpreter } from '../src/remoteRun.ts';
 
 const hasBash = spawnSync('bash', ['-c', 'command -v mktemp base64'], { encoding: 'utf8' }).status === 0;
 
@@ -45,4 +45,11 @@ test('interpreter setting accepts paths and simple wrappers only', () => {
     assert.ok(validInterpreter(ok), ok);
   for (const bad of ['', 'python3; rm -rf ~', 'python $(id)', 'py|sh', 'python3 && x', ' python'])
     assert.ok(!validInterpreter(bad), bad);
+});
+
+test('a missing Python package gets an install hint with the right pip name', () => {
+  const trace = "Traceback (most recent call last):\n  File \"/tmp/pre-x\", line 1, in <module>\nModuleNotFoundError: No module named 'numpy'";
+  assert.match(missingModuleHint(trace), /python3 -m pip install --user numpy/);
+  assert.match(missingModuleHint("ModuleNotFoundError: No module named 'sklearn.linear_model'"), /install --user scikit-learn/);
+  assert.equal(missingModuleHint('ZeroDivisionError: division by zero'), null);
 });

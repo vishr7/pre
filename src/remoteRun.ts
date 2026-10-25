@@ -75,6 +75,19 @@ export class RemoteCapture {
   }
 }
 
+// Import names that differ from their pip package name.
+const pipNames: Record<string, string> = { sklearn: 'scikit-learn', cv2: 'opencv-python', PIL: 'pillow', yaml: 'pyyaml', skimage: 'scikit-image', bs4: 'beautifulsoup4', dateutil: 'python-dateutil' };
+
+/** If a Python run failed on a missing package, say how to install it on the SSH machine. */
+export function missingModuleHint(output: string): string | null {
+  const match = /ModuleNotFoundError: No module named '([A-Za-z0-9_]+)(?:\.[\w.]+)?'/.exec(output);
+  if (!match) return null;
+  const pkg = pipNames[match[1]] ?? match[1].replace(/_/g, '-');
+  return `The SSH machine's Python doesn't have "${match[1]}". Install it by running this in the terminal:
+  python3 -m pip install --user ${pkg}
+Or, to keep packages per project, make a venv there (python3 -m venv ~/venv && ~/venv/bin/pip install ${pkg}) and set the Python interpreter under SSH ▸ Interpreters to ~/venv/bin/python.`;
+}
+
 export function loadInterpreters(): Interpreters {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');

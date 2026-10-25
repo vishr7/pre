@@ -1,5 +1,5 @@
 import {SweepJobs, planSweep} from './iterate.mjs';
-import { formatPaper } from '../src/paperFormat.ts';
+import { formatPaper, fitWideTables } from '../src/paperFormat.ts';
 import { planReplication, fetchArxiv } from './ai/paper-replication.mjs';
 import { replicate } from './replicate.mjs';
 import { chatReply } from './ai/chat.mjs';
@@ -156,7 +156,7 @@ export class Runtime {
       if (source !== undefined) {
         if (typeof source !== 'string' || source.length > 200000) throw new Error('LaTeX must be text under 200 KB.');
         input = path.join(dir, 'cell.tex');
-        const document = formatPaper(source);
+        const document = fitWideTables(formatPaper(source));
         await writeFile(input, document);
       } else input = safePath(dir, entrypoint);
       const output = path.join(dir, 'output'); await mkdir(output);

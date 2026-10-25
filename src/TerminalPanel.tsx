@@ -28,7 +28,7 @@ export default function TerminalPanel({ sessionId, runnerRef }: { sessionId: str
   const [placement, setPlacement] = useState<CSSProperties>({});
   const [pasted, setPasted] = useState('');
   const [pasteNote, setPasteNote] = useState<{ error: boolean; text: string } | null>(null);
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
   const [height, setHeight] = useState(200);
   const drag = useRef<{y:number;height:number} | null>(null);
 

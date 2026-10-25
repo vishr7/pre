@@ -169,3 +169,14 @@ from that directory with `sbatch submit.slurm`. Each array task writes its own
 not connected to Iterate yet; the existing `backend/hpc` service is the future
 integration point. Local live job IDs expire when the development server restarts;
 completed reports remain in saved project files.
+
+Iterate's AI parameter batch now uses notebook-style cells for the editable
+Python trial, parameter grid, and visible batch runner. **Run batch · auto
+location** checks the active terminal's SSH environment. If connected over SSH,
+it executes the portable batch there and saves returned metrics to the project
+for Ask AI. If the active terminal confirms it is local, it uses the local batch
+service. Terminal errors do not silently retry the experiment locally. Select
+the intended SSH tab before running; switching tabs does not move a running job.
+Interrupt an SSH batch with Ctrl+C in its terminal. Remote dependencies/data must
+already exist. This runs on that SSH host directly; use Backend / SSH study for
+scheduler-managed cluster jobs rather than running compute on a login node.

@@ -10,6 +10,8 @@ The REST API provides `POST /iterate/preview`, `POST /iterate/studies`, `GET /it
 
 The runner schedules local concurrency slots or uses the `/hpc` service for remote jobs. On workstations, it checks for free GPUs and assigns one to each active worker. On SLURM, it submits one `sbatch` job per trial; the cluster queues jobs. The same Optuna ask/tell loop records both backends. Select the remote option in Iterate, connect over SSH (including 2FA when needed), and review the session ID, project, environment, and search space before approving the study. The UI shows a leaderboard, best score history, latest live epoch values, parameter importance, parallel coordinates, a radial view of the current study (first 24 trials), and seeded confirmation statistics.
 
+To reuse the terminal's SSH login instead, choose **SSH terminal** under *Run trials on*. The browser then takes each waiting trial from `GET /iterate/studies/{id}/terminal/next`, runs it in the active terminal tab with that tab's Python interpreter (files go to `~/pre-iterate/<study>/trial_<n>` on the remote machine), and posts the output to `POST /iterate/studies/{id}/terminal/{number}`. Terminal trials run one at a time, are not pruned early, and need PRE to stay open; a trial with no result within its time limit plus one minute fails.
+
 HPC connections and live jobs use the existing in-memory session manager. If the backend restarts, Iterate marks the interrupted study failed; remote jobs may continue and must be inspected through the HPC service. Use a single backend server worker so the study scheduler and HPC sessions share memory.
 
 ## IDE entry points
