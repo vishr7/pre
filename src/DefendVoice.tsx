@@ -6,7 +6,6 @@ function VoiceControls({ base }: { base: string }) {
   const conversation = useConversation();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [demoKey, setDemoKey] = useState("");
   const connected = conversation.status === "connected";
   const active = connected || conversation.status === "connecting" || loading;
   const speaking = connected && conversation.isSpeaking;
@@ -23,11 +22,6 @@ function VoiceControls({ base }: { base: string }) {
   async function startDefense() {
     setError("");
 
-    if (!demoKey.trim()) {
-      setError("Enter the demo access key to start your voice defense.");
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -37,18 +31,11 @@ function VoiceControls({ base }: { base: string }) {
       // Use PRE's configured backend URL, or the local backend.
       const apiBase = base.trim().replace(/\/+$/, "") || "http://localhost:8000";
 
-      const response = await fetch(`${apiBase}/defend/signed-url`, {
-        headers: {
-          "X-PRE-Demo-Key": demoKey.trim(),
-        },
-      });
+      const response = await fetch(`${apiBase}/defend/signed-url`);
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error("Invalid demo access key.");
-        }
-        if (response.status === 503) {
-          throw new Error("Demo access is not configured on the backend.");
+        if (response.status === 500 || response.status === 503) {
+          throw new Error("ElevenLabs is not configured on the backend.");
         }
         throw new Error(`Could not get signed URL (HTTP ${response.status}).`);
       }
@@ -112,19 +99,8 @@ function VoiceControls({ base }: { base: string }) {
       </div>
 
       <div className="defend-voice-footer">
-        <label className="defend-voice-key" htmlFor="defend-demo-key">
-          <span>Demo access key</span>
-          <input
-            id="defend-demo-key"
-            type="password"
-            autoComplete="off"
-            value={demoKey}
-            onChange={(event) => { setDemoKey(event.target.value); setError(""); }}
-            placeholder="Enter access key"
-            disabled={active}
-          />
-        </label>
-        <span className="defend-voice-secure"><ShieldCheck size={12} aria-hidden="true" /> Secure session</span>
+        <span className="defend-voice-mic-note"><Mic size={12} aria-hidden="true" /> Your browser will ask for microphone access when you start.</span>
+        <span className="defend-voice-secure"><ShieldCheck size={12} aria-hidden="true" /> Secure ElevenLabs connection</span>
       </div>
 
       {error && <p className="defend-voice-error" role="alert">{error}</p>}
