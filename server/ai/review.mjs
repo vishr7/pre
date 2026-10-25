@@ -1,6 +1,6 @@
 import { structured_call } from './structured-call.mjs';
 import { reviewPrompt, reviewSchema, venues } from './review-prompt.mjs';
-import { checkNumbers, arithmeticScore } from './number-check.mjs';
+import { checkNumbers, arithmeticScore, quoteSpan, spansOverlap } from './number-check.mjs';
 const severityOrder = { critical: 0, major: 1, minor: 2 };
 export function findPaper({ files = [], cells = [] } = {}) {
   const tex = files.filter(f => typeof f?.path === 'string' && f.path.endsWith('.tex') && typeof f.content === 'string' && f.content.trim());
@@ -31,19 +31,24 @@ export async function reviewPaper({ files, cells, latex: suppliedLatex, venue = 
     structured_call({ prompt: reviewPrompt(latex, venues[venue] ? venue : 'generic', paperSections(latex)), schema: reviewSchema, validate: review => validateReview(latex, review) }, dependencies),
     checkNumbers(latex, dependencies).catch(() => null),
   ]);
-  return mergeNumberChecks(review, audit);
+  return mergeNumberChecks(review, audit, latex);
 }
 // Adds the code-computed arithmetic score (null if the audit failed or found nothing to check).
-// Verified calculation errors replace reviewer comments on the same quote and get their own action item.
-export function mergeNumberChecks(review, audit) {
+// Verified calculation errors replace the reviewer's own number comments on overlapping passages
+// (other categories on the same passage are kept), and action items left with no comments are dropped.
+export function mergeNumberChecks(review, audit, latex) {
   const numberComments = audit?.comments || [];
   review = { ...review, scores: { ...review.scores, arithmetic: audit ? arithmeticScore(audit) : null } };
   if (!numberComments.length) return review;
-  const checked = new Set(numberComments.map(c => c.quote));
-  const comments = [...review.comments.filter(c => !checked.has(c.quote)), ...numberComments].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  const checkedSpans = latex === undefined ? [] : numberComments.map(c => quoteSpan(latex, c.quote));
+  const duplicate = c => numberComments.some(n => n.quote === c.quote)
+    || (c.category === 'inconsistent_metric' && latex !== undefined && checkedSpans.some(span => spansOverlap(span, quoteSpan(latex, c.quote))));
+  const comments = [...review.comments.filter(c => !duplicate(c)), ...numberComments].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
   const kept = new Set(comments.map(c => c.id));
-  const action_items = review.action_items.map(a => ({ ...a, related_comment_ids: a.related_comment_ids.filter(id => kept.has(id)) }));
-  action_items.push({ id: `a${action_items.length + 1}`, title: 'Correct calculation errors',
+  const action_items = review.action_items
+    .filter(a => !a.related_comment_ids.length || a.related_comment_ids.some(id => kept.has(id)))
+    .map(a => ({ ...a, related_comment_ids: a.related_comment_ids.filter(id => kept.has(id)) }));
+  action_items.push({ id: `a${review.action_items.length + 1}`, title: 'Correct calculation errors',
     description: `Recompute the ${numberComments.length} stated value(s) that do not match the paper's own numbers and update the text and tables.`,
     related_comment_ids: numberComments.map(c => c.id) });
   return { ...review, comments, action_items };
