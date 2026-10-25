@@ -53,10 +53,21 @@ function sectionAt(latex, index) {
   const before = [...latex.slice(0, index).matchAll(/\\(?:sub)*section\*?\{([^}]*)\}/g)];
   return before.length ? before[before.length - 1][1] : 'General';
 }
+// The corrected value written the way the paper writes it: "84.0 (exactly 83.97)" when the paper uses one decimal.
+export function correctedValue(computed, claimedText) {
+  const decimals = (String(claimedText).replace(/,/g, '').split('.')[1] || '').length;
+  if (!decimals) return format(computed);
+  const rounded = computed.toFixed(decimals);
+  return Number(rounded) === Number(format(computed)) ? rounded : `${rounded} (exactly ${format(computed)})`;
+}
+export const quoteSpan = (latex, quote) => { const start = latex.indexOf(quote); return [start, start + quote.length]; };
+export const spansOverlap = ([a, b], [c, d]) => a < d && c < b;
+const calculationKey = c => `${String(c.expression).replace(/\s+/g, '')}=${String(c.claimed_value).replace(/,/g, '').trim()}`;
 // Turns verified mismatches into review comments; unanchored or unparseable items are dropped.
 // `checked` counts every calculation that was verified, right or wrong, for the arithmetic score.
+// The same wrong calculation at one spot is reported once; stated in several places, each gets a comment noting the others.
 export function auditCalculations(latex, calculations = []) {
-  const comments = [];
+  const found = [];
   let checked = 0;
   for (const c of calculations) {
     if (typeof c?.quote !== 'string' || c.quote.trim().length < 4 || !latex.includes(c.quote)) continue;
@@ -64,11 +75,17 @@ export function auditCalculations(latex, calculations = []) {
     try { computed = evaluate(c.expression); } catch { continue; }
     checked++;
     if (matchesClaim(computed, c.claimed_value, c.comparison)) continue;
-    const claim = c.comparison === 'at_least' ? `at least ${c.claimed_value}` : c.comparison === 'at_most' ? `at most ${c.claimed_value}` : c.claimed_value;
-    comments.push({ id: `m${comments.length + 1}`, section: sectionAt(latex, latex.indexOf(c.quote)), quote: c.quote, category: 'inconsistent_metric', severity: 'major',
-      comment: `Calculation check (${c.description}): the paper states ${claim}, but ${c.expression} = ${format(computed)}.`,
-      suggestion: `Correct the stated value to ${format(computed)}, or fix the numbers it is derived from.` });
+    const span = quoteSpan(latex, c.quote), key = calculationKey(c);
+    if (found.some(f => f.key === key && spansOverlap(f.span, span))) continue;
+    found.push({ c, computed, span, key, section: sectionAt(latex, span[0]) });
   }
+  const comments = found.map(({ c, computed, key, section }, i) => {
+    const claim = c.comparison === 'at_least' ? `at least ${c.claimed_value}` : c.comparison === 'at_most' ? `at most ${c.claimed_value}` : c.claimed_value;
+    const elsewhere = [...new Set(found.filter((f, j) => j !== i && f.key === key).map(f => f.section))];
+    return { id: `m${i + 1}`, section, quote: c.quote, category: 'inconsistent_metric', severity: 'major',
+      comment: `Calculation check (${c.description}): the paper states ${claim}, but ${c.expression} = ${format(computed)}.${elsewhere.length ? ` The same value is also stated in ${elsewhere.join(', ')}.` : ''}`,
+      suggestion: `Correct the stated value to ${correctedValue(computed, c.claimed_value)}, or fix the numbers it is derived from.` };
+  });
   return { comments, checked };
 }
 export const checkCalculations = (latex, calculations) => auditCalculations(latex, calculations).comments;
