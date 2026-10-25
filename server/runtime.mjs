@@ -148,6 +148,7 @@ export class Runtime {
     try {
       dir = await mkdtemp(path.join(this.root, 'latex-'));
       await writeFiles(dir, files);
+      await exposeSupportFiles(dir, files, source !== undefined ? 'cell' : path.basename(entrypoint, '.tex'));
       if(!Array.isArray(assets)||assets.length>40)throw new Error('Too many figure assets.');
       for(const asset of assets){
         const bytes=figureAssetBytes(asset);
@@ -182,6 +183,21 @@ export class Runtime {
     for (const [sessionId, session] of this.sessions) { await this.reset({ sessionId }); await rm(await session.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
     this.sessions.clear(); this.pdfs.clear();
   }
+}
+// LaTeX only looks next to the paper for .sty/.cls/.bib/.bst files, so copies from styles/ and bibliography/
+// are placed there too. When the paper ships one pre-built .bbl (as arXiv sources do), it is used under the
+// job name and the .bib is not exposed, so references are not rebuilt (Tectonic's BibTeX crashes on very long entries).
+export async function exposeSupportFiles(dir, files = [], jobname = 'cell') {
+  const support = files.filter(f => /^(styles|bibliography)\/[^/]+$/.test(f?.path || ''));
+  const bbl = support.filter(f => f.path.endsWith('.bbl'));
+  const prebuilt = bbl.length === 1;
+  for (const file of support) {
+    if (prebuilt && file.path.endsWith('.bib')) continue;
+    const target = safePath(dir, file.path.split('/').pop());
+    if (!existsSync(target)) await writeFile(target, file.content);
+  }
+  const target = safePath(dir, `${jobname}.bbl`);
+  if (prebuilt && !existsSync(target)) await writeFile(target, bbl[0].content);
 }
 // Figures for LaTeX: notebook plots and uploaded PNG/JPG/PDF files, checked by path, size, and file signature.
 const figureSignatures = { png: '89504e470d0a1a0a', jpg: 'ffd8ff', jpeg: 'ffd8ff', pdf: '25504446' };
