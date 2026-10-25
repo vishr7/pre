@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { request, type Cell, type ProjectFile } from './api';
 import { isScientificResult, object } from './scientific';
 import ScientificResults from './ScientificResults';
-import IteratePanel from './IteratePanel';
+import IteratePanel from './BackendIteratePanel';
 
 type Props={mode:'Experiment'|'Iterate';base:string;files:ProjectFile[];cells:Cell[];onSummary:(text:string)=>void};
 export default function ScientificTool(props:Props) {

@@ -95,7 +95,7 @@ export function paperLatex(files: {path: string; content: string}[], cells: Cell
   const root = tex.find(file => /^\s*\\documentclass(?:\[|\{)/m.test(file.content));
   const ordered = root ? [root, ...tex.filter(file => file !== root)] : tex;
   const sources = ordered.filter(file => !visited.has(file.path)).map(file => ({id:file.path,type:'latex' as const,source:expand(file.path)}));
-  const latexCells = cells.filter(cell => cell.type === 'latex' && cell.source.trim());
+  const latexCells = cells.filter(cell => cell.type === 'latex' && cell.source.trim() && !cell.filePath);
   // A notebook can contain a complete document; do not let the empty starter
   // paper create a second document or hide the notebook's real content.
   const hasCellDocument = latexCells.some(cell => /^\s*\\documentclass(?:\[|\{)/m.test(cell.source));

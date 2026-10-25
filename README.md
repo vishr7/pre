@@ -141,3 +141,31 @@ The notebook insert toolbar groups programming languages under **Code ▾**, wit
 ### Review and formatting evaluation
 
 Keep Gemini and establish a measured baseline with `npm run eval:check`, `eval:prepare`, `eval:review`, and `eval:format`. See [evaluation/README.md](evaluation/README.md) for normalized dataset input, paper-grouped splits, live API flags, result interpretation, and the PDF inspection checklist. External datasets are not bundled; the included examples are synthetic smoke fixtures, not quality benchmarks. Reports and PDFs are saved under ignored `.runtime/evaluations/`.
+
+### Iterate parameter batches
+
+Open **Tools → Iterate**, or choose **Test in Iterate** on a review comment.
+Generate or edit a Python function `run_trial(params)` that returns a dictionary
+of measured numeric metrics. Review the code, explicit JSON configurations,
+objective metric, and direction, then select **Run batch locally**.
+
+Local batches support 1–32 trials and 1–4 concurrent fresh Python workers, with
+a 30-second timeout per trial. These execute on the host like notebook code;
+they are not containers or a security sandbox. Packages/data must already be
+available. Stop batch cancels queued and active trials. Failures are recorded
+and excluded from best-result selection. Equal budgets and repeated seeds
+must be specified in the experiment; the displayed best trial is only the best
+observed configuration, not statistical proof of superiority.
+
+Drafts and results are saved under `iteration/`. **Analyze with Ask AI** uses the
+recorded parameters, metrics, failures, and source. **Insert trial in notebook**
+adds the code with the first configuration without executing it.
+
+**Save / export SLURM batch** creates `trial.py`, `configurations.json`,
+`run_trial.py`, and `submit.slurm` in project files. Transfer these together to
+the cluster, configure the account/partition and Python environment, and submit
+from that directory with `sbatch submit.slurm`. Each array task writes its own
+`results/<index>.json`. Direct SSH submission and remote result retrieval are
+not connected to Iterate yet; the existing `backend/hpc` service is the future
+integration point. Local live job IDs expire when the development server restarts;
+completed reports remain in saved project files.

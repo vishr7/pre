@@ -364,8 +364,7 @@ sys.exit(code)
 
 def parse_terminal_output(output, space, progress):
     metrics, lines = None, []
-    for line in output.replace("", "").split("
-"):
+    for line in output.replace("\r", "").split("\n"):
         if line.startswith(METRICS_MARKER):
             try:
                 metrics = json.loads(line[len(METRICS_MARKER):])
@@ -380,8 +379,7 @@ def parse_terminal_output(output, space, progress):
                 progress.append(point)
         except (ValueError, AttributeError):
             pass
-    return metrics, "
-".join(lines)
+    return metrics, "\n".join(lines)
 
 
 async def terminal_trial(study_id, trial, params, space, script, seed, run_dir, progress):

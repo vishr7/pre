@@ -11,3 +11,17 @@ The REST API provides `POST /iterate/preview`, `POST /iterate/studies`, `GET /it
 The runner schedules local concurrency slots or uses the `/hpc` service for remote jobs. On workstations, it checks for free GPUs and assigns one to each active worker. On SLURM, it submits one `sbatch` job per trial; the cluster queues jobs. The same Optuna ask/tell loop records both backends. Select the remote option in Iterate, connect over SSH (including 2FA when needed), and review the session ID, project, environment, and search space before approving the study. The UI shows a leaderboard, best score history, latest live epoch values, parameter importance, parallel coordinates, a radial view of the current study (first 24 trials), and seeded confirmation statistics.
 
 HPC connections and live jobs use the existing in-memory session manager. If the backend restarts, Iterate marks the interrupted study failed; remote jobs may continue and must be inspected through the HPC service. Use a single backend server worker so the study scheduler and HPC sessions share memory.
+
+## IDE entry points
+
+Tools → Iterate keeps both workflows available:
+- **AI parameter batch** generates editable `run_trial(params)` code, runs bounded
+  local batches through the IDE runtime, saves reports in project files, and
+  passes recorded results to Ask AI. It also exports a SLURM array script.
+- **Backend / SSH study** uses the Python backend described above for CLI-based
+  scripts, adaptive searches, persistent studies, and connected HPC execution.
+
+The two runners use different script contracts. A `run_trial(params)` draft is
+not directly a CLI study script: adapt it to accept the search flags and `--out`
+and write `metrics.json` before using it in Backend / SSH study. The AI batch
+export does not itself submit SSH jobs.

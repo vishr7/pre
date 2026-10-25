@@ -3,6 +3,7 @@ export type Cell = {
   id: string;
   type: 'markdown' | 'latex' | CodeLanguage;
   source: string;
+  filePath?: string;
   executedSource?: string;
   editorHeight?: number;
   output?: string;
