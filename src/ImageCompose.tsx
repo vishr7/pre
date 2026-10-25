@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { FileText, Send, X } from 'lucide-react';
 import type { Cell } from './api';
 export type ImageInstruction = {instruction:string;image:{mimeType:string;data:string}};
-export default function ImageCompose({cells,busy,message,onMessage,onSend,onGenerate}:{cells:Cell[];busy:boolean;message:string;onMessage:(text:string)=>void;onSend:()=>void;onGenerate:(id:string,input:ImageInstruction)=>Promise<void>}){
+export default function ImageCompose({activeCellId,cells,busy,message,onMessage,onSend,onGenerate}:{activeCellId?:string;cells:Cell[];busy:boolean;message:string;onMessage:(text:string)=>void;onSend:()=>void;onGenerate:(id:string,input:ImageInstruction)=>Promise<void>}){
  const [attachment,setAttachment]=useState<ImageInstruction['image']|null>(null);
  const [target,setTarget]=useState('');const [error,setError]=useState('');const [reading,setReading]=useState(false);
  const [sending,setSending]=useState(false);const locked=useRef(false);
@@ -11,7 +11,7 @@ export default function ImageCompose({cells,busy,message,onMessage,onSend,onGene
   setError('');
   if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>2000000){setError('Use a PNG, JPEG, or WebP image under 2 MB.');return;}
   locked.current=true;setReading(true);
-  try{const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);});setAttachment({mimeType:file.type,data});}catch{setError('Could not read that image.');}finally{locked.current=false;setReading(false);}
+  try{const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);});setAttachment({mimeType:file.type,data});setTarget(cells.some(c=>c.id===activeCellId&&c.type==='latex')?activeCellId!:'');}catch{setError('Could not read that image.');}finally{locked.current=false;setReading(false);}
  }
  async function send(){
   if(busy||locked.current)return;

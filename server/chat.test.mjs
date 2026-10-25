@@ -18,3 +18,10 @@ test('chat sends result plots as image parts, not embedded text',async()=>{
  return {ok:true,json:async()=>({candidates:[{content:{parts:[{text:JSON.stringify({message:'Analysis',cells:[]})}]}}]})};
  }});
 });
+test('chat hands off a validated SSH workflow without executing or editing',async()=>{
+ const workflow={code:'def run_trial(p): return {"loss": p["x"]}',configurations:'[{"x":1},{"x":2}]',metric:'loss',direction:'minimize',parallel:2,execution:'ssh',summary:'Compare two settings',writeAnalysis:true};
+ const expected={message:'Review and run the sweep in Iterate.',cells:[],edits:[],workflow};
+ assert.deepEqual(await chatReply({messages:[{role:'user',text:'Write a sweep, run through SSH and analyze in my paper'}]},dependencies(expected)),expected);
+ await assert.rejects(chatReply({messages:[{role:'user',text:'Sweep'}]},dependencies({...expected,workflow:{...workflow,parallel:40}})),/parallel/);
+ await assert.rejects(chatReply({messages:[{role:'user',text:'Sweep'}]},dependencies({...expected,cells:[{language:'python',source:'print(1)'}]})),/workflow alone/);
+});
