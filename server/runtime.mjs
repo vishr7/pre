@@ -147,11 +147,9 @@ export class Runtime {
     try {
       dir = await mkdtemp(path.join(this.root, 'latex-'));
       await writeFiles(dir, files);
-      if(!Array.isArray(assets)||assets.length>20)throw new Error('Too many figure assets.');
+      if(!Array.isArray(assets)||assets.length>40)throw new Error('Too many figure assets.');
       for(const asset of assets){
-        if(typeof asset.path!=='string'||!/^figures\/[a-zA-Z0-9_-]+\.png$/.test(asset.path)||typeof asset.data!=='string'||asset.data.length>2000000||! /^[A-Za-z0-9+/]+={0,2}$/.test(asset.data))throw new Error('Invalid figure asset.');
-        const bytes=Buffer.from(asset.data,'base64');
-        if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Figure is not a PNG.');
+        const bytes=figureAssetBytes(asset);
         const target=safePath(dir,asset.path);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,bytes);
       }
       let input;
@@ -184,6 +182,15 @@ export class Runtime {
     this.sessions.clear(); this.pdfs.clear();
   }
 }
+// Figures for LaTeX: notebook plots and uploaded PNG/JPG/PDF files, checked by path, size, and file signature.
+const figureSignatures = { png: '89504e470d0a1a0a', jpg: 'ffd8ff', jpeg: 'ffd8ff', pdf: '25504446' };
+export function figureAssetBytes(asset) {
+  const match = typeof asset?.path === 'string' && /^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(png|jpe?g|pdf)$/i.exec(asset.path);
+  if (!match || typeof asset.data !== 'string' || asset.data.length > 4000000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(asset.data)) throw new Error('Invalid figure asset.');
+  const bytes = Buffer.from(asset.data, 'base64');
+  if (!bytes.toString('hex').startsWith(figureSignatures[match[1].toLowerCase()])) throw new Error(`Figure ${asset.path} is not a valid ${match[1].toUpperCase()} file.`);
+  return bytes;
+}
 export function runtimePlugin() {
   const runtime = new Runtime();
   const sweeps = new SweepJobs(runtime);
@@ -204,7 +211,7 @@ export function runtimePlugin() {
       if (req.method !== 'POST' || req.headers['x-pre-runtime'] !== '1' || !req.headers['content-type']?.startsWith('application/json')) return send(403, { error: 'Expected a same-origin PRE request.' });
       try {
         let raw = '';
-        for await (const chunk of req) { raw += chunk; if (raw.length > 5000000) return send(413, { error: 'Project request exceeds 5 MB.' }); }
+        for await (const chunk of req) { raw += chunk; if (raw.length > 25000000) return send(413, { error: 'Project request exceeds 25 MB.' }); }
         const data = JSON.parse(raw);
         if (req.url === '/api/compose/image') return send(200, await composeImage(data));
         if (req.url === '/api/compose/latex') return send(200, await composeLatex(data));
