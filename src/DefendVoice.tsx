@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { AudioLines, LoaderCircle, Mic, ShieldCheck } from "lucide-react";
+import type { Cell, ProjectFile } from "./api";
+import { examinerSignedUrlPath, preparePaperContext, voiceSessionOptions } from "./paperContext";
 
 type Examiner = "supportive" | "critical";
 
-function VoiceControls({ base }: { base: string }) {
+function VoiceControls({ base, files, cells }: { base: string; files: ProjectFile[]; cells: Cell[] }) {
   const conversation = useConversation();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [examiner, setExaminer] = useState<Examiner>("supportive");
+  const [paperLoaded, setPaperLoaded] = useState(false);
   const connected = conversation.status === "connected";
   const active = connected || conversation.status === "connecting" || loading;
   const speaking = connected && conversation.isSpeaking;
@@ -24,18 +27,23 @@ function VoiceControls({ base }: { base: string }) {
 
   async function startDefense() {
     setError("");
+    setPaperLoaded(false);
 
     setLoading(true);
 
     try {
+      const paperContext = preparePaperContext(files, cells);
+      if (!paperContext) {
+        throw new Error("Add research content to this project’s LaTeX paper before starting a paper-specific defense.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
 
       // Use PRE's configured backend URL, or the local backend.
       const apiBase = base.trim().replace(/\/+$/, "") || "http://localhost:8000";
 
-      const query = new URLSearchParams({ examiner });
-      const response = await fetch(`${apiBase}/defend/signed-url?${query}`);
+      const response = await fetch(`${apiBase}${examinerSignedUrlPath(examiner)}`);
 
       if (!response.ok) {
         if (response.status === 503) {
@@ -48,9 +56,9 @@ function VoiceControls({ base }: { base: string }) {
       const data: { signed_url: string } = await response.json();
 
       await conversation.startSession({
-        signedUrl: data.signed_url,
-        connectionType: "websocket",
+        ...voiceSessionOptions(data.signed_url, paperContext),
       });
+      setPaperLoaded(true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -136,14 +144,15 @@ function VoiceControls({ base }: { base: string }) {
       {error && <p className="defend-voice-error" role="alert">{error}</p>}
       {!error && conversation.status === "error" && conversation.message && <p className="defend-voice-error" role="alert">{conversation.message}</p>}
       {!error && conversation.status === "connecting" && <p className="defend-voice-hint" role="status">Connecting to your examiner. This can take a few seconds.</p>}
+      {!error && paperLoaded && connected && <p className="defend-voice-hint" role="status">Research paper loaded for this conversation.</p>}
     </section>
   );
 }
 
-export default function DefendVoice({ base }: { base: string }) {
+export default function DefendVoice({ base, files, cells }: { base: string; files: ProjectFile[]; cells: Cell[] }) {
   return (
     <ConversationProvider>
-      <VoiceControls base={base} />
+      <VoiceControls base={base} files={files} cells={cells} />
     </ConversationProvider>
   );
 }
