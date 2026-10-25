@@ -22,7 +22,10 @@ export default function ProjectHome({ projects, onOpen, onCreate, onRename, onAr
   function changeView(next: typeof view) { setView(next); setSelected([]); setQuery(''); }
   return <div className="project-home">
     <aside className="home-sidebar">
-      <a className="brand" href="#/">PRE <small>Compose</small></a>
+      <a className="brand" href="#/" aria-label="PRE Compose home">
+        <span className="brand-mark" aria-hidden="true"><span>P</span><i /></span>
+        <span className="brand-wordmark"><strong>PRE</strong><span>COMPOSE</span></span>
+      </a>
       <div className="home-nav-label">WORKSPACE</div>
       <button className={view === 'active' ? 'home-nav selected' : 'home-nav'} onClick={() => changeView('active')}><Folder size={17}/> Your projects <span>{projects.filter(p => !p.archived).length}</span></button>
       <button className={view === 'archived' ? 'home-nav selected' : 'home-nav'} onClick={() => changeView('archived')}><Archive size={17}/> Archived <span>{projects.filter(p => p.archived).length}</span></button>
