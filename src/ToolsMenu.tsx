@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Copy, FlaskConical, RefreshCw, ShieldCheck, SquarePen } from 'lucide-react';
 const tools = [
  {name:'Review',icon:SquarePen,detail:'Get feedback on your paper'},
- {name:'Experiment',icon:FlaskConical,detail:'Run and analyze experiments'},
- {name:'Replicate',icon:Copy,detail:'Reproduce published results'},
- {name:'Iterate',icon:RefreshCw,detail:'Refine your research'},
+ {name:'Literature',icon:FlaskConical,detail:'Find sources and check citations'},
+ {name:'Ablations',icon:Copy,detail:'Compare methods and isolate contributions'},
+ {name:'Iterate',icon:RefreshCw,detail:'Improve your method from evidence'},
  {name:'Defend',icon:ShieldCheck,detail:'Practice your thesis defense'},
 ];
 export default function ToolsMenu({value,onChange}:{value:string;onChange:(value:string)=>void}){

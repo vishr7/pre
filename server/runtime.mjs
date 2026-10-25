@@ -1,3 +1,4 @@
+import {searchLiterature,verifyDOIs} from './literature.mjs';
 import {SweepJobs, planSweep} from './iterate.mjs';
 import { formatPaper, fitWideTables } from '../src/paperFormat.ts';
 import { planReplication, fetchArxiv } from './ai/paper-replication.mjs';
@@ -223,6 +224,8 @@ export function runtimePlugin() {
         if (req.url === '/api/iterate/start') return send(200, sweeps.start(data));
         if (req.url === '/api/iterate/status') return send(200, sweeps.get(data.id));
         if (req.url === '/api/iterate/cancel') return send(200, await sweeps.cancel(data.id));
+        if (req.url === '/api/literature/verify') return send(200, await verifyDOIs(data));
+        if (req.url === '/api/literature/search') return send(200, await searchLiterature(data));
         if (req.url === '/api/chat') return send(200, await chatReply(data));
         if (req.url === '/api/review') return send(200, await reviewPaper(data));
         if (req.url === '/api/review/fix') return send(200, await proposeReviewFix(data));

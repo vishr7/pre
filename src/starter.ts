@@ -17,11 +17,11 @@ legacyCells.push(
  { id: 'results', type: 'markdown', source: '## 2. Experimental results\nWe evaluate our method on ShapeNet and compare against NeRF and Instant3D. Our approach consistently improves reconstruction quality across unseen viewpoints.' }
 );
 
-export const initialCells: Cell[] = [{ id: 'start', type: 'python', source: '' }];
-export const initialFiles: ProjectFile[] = [{
- path: 'paper/main.tex',
- content: blankPaper,
-}];
+export const initialFiles: ProjectFile[] = [
+ {path:'main.tex',content:blankPaper.replace('\\null\n% Write your paper here.', '\\input{sections/introduction.tex}')},
+ {path:'sections/introduction.tex',content:'\\section{Introduction}\n% Introduce your research question here.\n'},
+];
+export const initialCells: Cell[] = initialFiles.map(file=>({id:'file:'+file.path,type:'latex',filePath:file.path,source:file.content}));
 export function cleanStarterCells(cells: Cell[]): Cell[] {
  const kept = cells.filter(cell => !legacyCells.some(old => old.id === cell.id && old.type === cell.type && old.source === cell.source));
  return kept.length ? kept : initialCells;
@@ -29,6 +29,6 @@ export function cleanStarterCells(cells: Cell[]): Cell[] {
 export function cleanStarterFiles(files: ProjectFile[]): ProjectFile[] {
  return files.flatMap(file => {
    if (!legacyFiles.some(old => old.path === file.path && old.content === file.content)) return [file];
-   return initialFiles.filter(replacement => replacement.path === file.path);
+   return file.path==='paper/main.tex' ? structuredClone(initialFiles) : initialFiles.filter(replacement => replacement.path === file.path);
  });
 }
